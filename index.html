@@ -342,6 +342,7 @@ let state = {
   form:null,
   reportDate: todayISO(),
   reportSection:'all',
+  reportControlType:'gp',
   reportEngineer:'all',
   adminTab:'products',
   catalogSaveFailed:false,
@@ -358,6 +359,81 @@ function engineerSection(name){
   const e = ((state.catalog && state.catalog.engineers)||[]).find(e=>e.name===name);
   return e ? (e.section||'') : '';
 }
+
+const OPERATIONS = [
+  {id:'rozlyv', label:'Розлив'},
+  {id:'poklejka', label:'Поклейка'},
+  {id:'tuba', label:'Фасування в тубу'},
+  {id:'sashet', label:'Фасування сашет'},
+  {id:'tkanyna', label:'Фасування тканинних основ'},
+  {id:'prosochennya', label:'Просочення тканинних основ'},
+];
+function opLabel(id){ const o = OPERATIONS.find(o=>o.id===id); return o ? o.label : id; }
+function opsLabel(ops){ return (ops||[]).map(opLabel).join(', '); }
+function displayMeasurements(r){
+  if(r.netMeasurements && r.netMeasurements.length) return r.netMeasurements.join('; ');
+  return (r.measurements||[]).filter(m=>m!=='').join('; ');
+}
+
+function controlTypeLabel(t){ return t==='pf' ? 'Проміжний контроль фасування ГП' : 'Готова продукція'; }
+
+// The 5 appearance/packaging checks required for finished-product (ГП) control
+const APPEARANCE_ITEMS = [
+  {id:'semiProduct', label:'Відповідність напівфабрикату'},
+  {id:'tara', label:'Відповідність тари'},
+  {id:'ukuporka', label:'Відповідність укупорки'},
+  {id:'marking', label:'Відповідність маркування (дата, термін придатності)'},
+  {id:'label', label:'Відповідність ярлика та інформації на ньому (назва, штрих-код, дата, термін)'},
+];
+function appearanceOverall(checks){
+  const vals = APPEARANCE_ITEMS.map(it=>checks[it.id]).filter(Boolean);
+  if(vals.length < APPEARANCE_ITEMS.length) return ''; // not all filled yet
+  if(vals.some(v=>v==='fail')) return 'fail';
+  if(vals.some(v=>v==='note')) return 'note';
+  return 'ok';
+}
+function appearanceLabel(v){
+  return v==='ok' ? 'Відповідає' : v==='note' ? 'Зауваження' : v==='fail' ? 'Не відповідає (акт)' : '—';
+}
+
+// Non-compliance act (F-QC-8.7/10-05) — matches the real paper form
+const ACT_DISCOVERY_STAGES = [
+  {id:'receiving', label:'При отриманні зі складу/ділянки'},
+  {id:'semiprep', label:'При приготуванні напівфабрикату'},
+  {id:'packaging', label:'Фасування / Пакування'},
+  {id:'labeling', label:'Етикетування'},
+  {id:'acceptance', label:'Приймальний контроль якості'},
+  {id:'storage', label:'Склад ГП (зберігання ГП, напівфабрикату)'},
+];
+const ACT_NONCOMPLIANCE_TYPES = [
+  {id:'organoleptic', label:'Невідповідність органолептичних показників'},
+  {id:'rheological', label:'Невідповідність реологічних властивостей'},
+  {id:'physchem', label:'Невідповідність фізико-хімічних показників'},
+  {id:'contaminated_product', label:'Забруднена продукція (напівфабрикат)'},
+  {id:'microbio', label:'Мікробіологічна контамінація'},
+  {id:'semi_package_mismatch', label:'Невідповідність напівфабрикату упаковці'},
+  {id:'damaged_package', label:'Пошкоджена упаковка'},
+  {id:'dirty_package', label:'Забруднена упаковка'},
+  {id:'marking_mismatch', label:'Невідповідність маркування'},
+  {id:'design_mismatch', label:'Невідповідність дизайну упаковки'},
+  {id:'mixup', label:'Пересортиця'},
+  {id:'other', label:'Інше'},
+];
+const ACT_CAUSE_CATEGORIES = [
+  {id:'sdipm', label:'СДіПМ'},
+  {id:'equipment', label:'Обладнання'},
+  {id:'personnel', label:'Персонал'},
+  {id:'recipe', label:'Рецептура (Специфікація)'},
+  {id:'methods', label:'Методи'},
+  {id:'measurement', label:'Вимірювання'},
+];
+const ACT_STATUS_OPTIONS = [
+  {id:'reject', label:'Переведення продукції в брак'},
+  {id:'quarantine', label:'Карантин'},
+  {id:'corrective', label:'Потрібні коригувальні дії'},
+  {id:'preventive', label:'Потрібні запобіжні дії'},
+];
+function labelsFor(list, ids){ return (ids||[]).map(id=>{ const it=list.find(x=>x.id===id); return it?it.label:id; }); }
 
 function todayISO(){
   const d=new Date(); const p=n=>String(n).padStart(2,'0');
@@ -700,7 +776,7 @@ function renderHome(){
   return `
     <div class="screen-head"><h1>Доброго дня, ${esc(state.session.name.split(' ')[0])}</h1></div>
     <div class="tiles">
-      <button class="tile accent" data-goto="typepick"><span class="icon">📝</span><span class="tlabel">Новий контроль</span><span class="tsub">Напівфабрикат або готова продукція</span></button>
+      <button class="tile accent" data-goto="typepick"><span class="icon">📝</span><span class="tlabel">Новий контроль</span><span class="tsub">Проміжний або готова продукція</span></button>
       <button class="tile" data-goto="report"><span class="icon">📊</span><span class="tlabel">Звіт за зміну</span><span class="tsub">Сформувати та вивантажити</span></button>
       ${state.session.role==='admin' ? `<button class="tile wide" data-goto="admin"><span class="icon">⚙️</span><div><div class="tlabel">Довідник</div><div class="tsub">Продукція, обладнання, інженери</div></div></button>` : ''}
     </div>
@@ -725,7 +801,7 @@ function renderMiniRecord(r){
   return `<div class="list-item">
     <div>
       <div class="li-name">${esc(r.productName)}</div>
-      <div class="li-sub">${esc(r.time)} · партія ${esc(r.batch?fmtDate(r.batch):'—')} · ${r.controlType==='pf'?'Напівфабрикат':'Готова продукція'}</div>
+      <div class="li-sub">${esc(r.time)} · партія ${esc(r.batch?fmtDate(r.batch):'—')} · ${controlTypeLabel(r.controlType)}${r.continuesFrom?' · ↳ продовження':''}</div>
     </div>
     <span class="badge ${badge}">${badgeText}</span>
   </div>`;
@@ -743,13 +819,13 @@ function renderTypePick(){
     <div class="card" style="display:flex;flex-direction:column;gap:12px;">
       <button class="tile" style="text-align:left;" data-start-type="pf">
         <span class="icon">🧴</span>
-        <span class="tlabel">Напівфабрикат</span>
-        <span class="tsub">Контроль фасування у виробництві (розлив / поклейка)</span>
+        <span class="tlabel">Проміжний контроль фасування ГП</span>
+        <span class="tsub">Під час фасування — вага/об'єм, операція</span>
       </button>
       <button class="tile" style="text-align:left;" data-start-type="gp">
         <span class="icon">📦</span>
         <span class="tlabel">Готова продукція</span>
-        <span class="tsub">Приймання готової продукції</span>
+        <span class="tsub">Приймання — зовнішній вигляд, тара, маркування, акти</span>
       </button>
     </div>
   `;
@@ -766,13 +842,35 @@ function newFormState(controlType){
     trademark:'', productCode:'', productName:'',
     tmQuery:'', prodQuery:'',
     batch:'', expiry:'',
-    ops:[], // 'rozlyv','poklejka'
+    ops:[], // 'rozlyv','poklejka','tuba','sashet','tkanyna','prosochennya'
     normValue:'', normUnit:'г',
     netBrutto:'netto',
+    tareWeight:'',
     measurements:[''],
     compliance:'',
     equipment:'',
     comment:'',
+    // Продовження раніше розпочатої перевірки цієї партії (ГП) — не дозволяє редагувати
+    // вже збережені записи, лише додає новий, пов'язаний з попереднім.
+    continuesFrom:'',
+    continuationNote:'',
+    showContinuePicker:false,
+    // Finished-product (ГП) only, below:
+    appearanceChecks:{}, // {semiProduct:'ok'|'note'|'fail', tara:..., ukuporka:..., marking:..., label:...}
+    permitEnabled:false,
+    permitNumber:'', permitDate:'', permitDesc:'',
+    // Акт невідповідності (форма F-QC-8.7/10-05)
+    actNumber:'', actDate: todayISO(),
+    actDiscoveryStage:'acceptance',
+    actSpecNumber:'', actSemiDate:'',
+    actTotalQty:'', actTotalQtyUnit:'шт',
+    actDefectQty:'', actDefectQtyUnit:'шт',
+    actNonComplianceTypes:[], actNonComplianceOther:'',
+    actDesc:'',
+    actCauseCategories:[], actCauseDetail:'',
+    actResponsibleName:'', actResponsiblePosition:'Начальник виробництва',
+    actStatusOptions:[],
+    actActions:'',
   };
 }
 
@@ -787,7 +885,7 @@ function trademarksForType(type){
 function renderForm(){
   const f = state.form;
   if(!f) return renderTypePick();
-  const typeLabel = f.controlType==='pf' ? 'Напівфабрикат' : 'Готова продукція';
+  const typeLabel = controlTypeLabel(f.controlType);
   const tmOptions = trademarksForType(f.controlType);
   const prodOptions = f.trademark ? productsForType(f.controlType).filter(p=>p.trademark===f.trademark) : [];
 
@@ -819,6 +917,8 @@ function renderForm(){
       ` : `<input type="text" value="Дільниця ${esc(f.section)}" disabled style="background:#f4f2ec;color:var(--ink-soft);">`}
     </div>
   </div>
+
+  ${f.controlType==='gp' ? renderContinuationSection(f) : ''}
 
   <div class="card">
     <h2>Продукція</h2>
@@ -852,7 +952,7 @@ function renderForm(){
   <div class="card">
     <h2>Операція</h2>
     <div class="chips" id="f-ops">
-      ${['rozlyv','poklejka'].map(op=>`<button class="chip ${f.ops.includes(op)?'selected':''}" data-op="${op}">${op==='rozlyv'?'Розлив':'Поклейка'}</button>`).join('')}
+      ${OPERATIONS.map(op=>`<button class="chip ${f.ops.includes(op.id)?'selected':''}" data-op="${op.id}">${op.label}</button>`).join('')}
     </div>
   </div>
 
@@ -877,19 +977,34 @@ function renderForm(){
         <button data-nb="brutto" class="${f.netBrutto==='brutto'?'selected':''}">Брутто</button>
       </div>
     </div>
+    ${f.netBrutto==='brutto' ? `
     <div class="field">
-      <label>Фактичні заміри</label>
+      <label>Вага тари (упаковки), ${esc(f.normUnit)}</label>
+      <input type="number" step="0.01" id="f-tare" value="${esc(f.tareWeight)}" placeholder="напр. 25">
+      <div class="hint">Введіть замір разом з упаковкою — нетто порахується автоматично, калькулятор не потрібен.</div>
+    </div>
+    ` : ''}
+    <div class="field">
+      <label>Фактичні заміри${f.netBrutto==='brutto'&&f.tareWeight?' (брутто → нетто)':''}</label>
       <div class="meas-list" id="f-meas">
-        ${f.measurements.map((m,i)=>`
+        ${f.measurements.map((m,i)=>{
+          const tare = parseFloat(f.tareWeight);
+          const val = parseFloat(m);
+          const showNet = f.netBrutto==='brutto' && !isNaN(tare) && !isNaN(val);
+          return `
           <div class="meas-row">
             <input type="number" step="0.01" data-meas-idx="${i}" value="${esc(m)}" placeholder="Замір №${i+1}">
+            ${showNet?`<span class="mono" style="font-size:12px;color:var(--ink-soft);white-space:nowrap;">= ${(val-tare).toFixed(2)} нетто</span>`:''}
             ${f.measurements.length>1?`<button class="rm" data-meas-rm="${i}">×</button>`:''}
-          </div>`).join('')}
+          </div>`;
+        }).join('')}
       </div>
       <button class="add-meas" id="f-meas-add">+ Додати замір</button>
     </div>
     <div class="tolerance-hint" id="f-tol-hint"></div>
   </div>
+
+  ${f.controlType==='gp' ? renderAppearanceSection(f) : ''}
 
   <div class="card">
     <h2>Відповідність</h2>
@@ -917,7 +1032,184 @@ function renderForm(){
   `;
 }
 
-/* ---- form combobox rendering helpers ---- */
+/* ---- continuation-of-inspection section (Готова продукція only) ---- */
+function renderContinuationSection(f){
+  const todaysGp = state.records.filter(r=>
+    r.controlType==='gp' && r.date===f.date && recordSection(r)===f.section
+  ).slice().sort((a,b)=>(b.time||'').localeCompare(a.time||''));
+  return `
+  <div class="card">
+    <h2>Продовження перевірки</h2>
+    <div class="segmented" id="f-continue-toggle">
+      <button data-continue="no" class="${!f.continuesFrom?'selected':''}">Нова перевірка</button>
+      <button data-continue="yes" class="${f.continuesFrom?'selected':''}">Продовження вже розпочатої</button>
+    </div>
+    <div class="hint" style="margin-top:6px;">Використовуйте це, якщо партію перевіряють частинами — наприклад, спочатку один піддон, а через кілька годин інший. Раніше збережені дані не змінюються — це завжди новий, окремий запис.</div>
+    ${f.showContinuePicker ? `
+      <div class="field" style="margin-top:12px;">
+        <label>Яку перевірку сьогодні продовжуємо?</label>
+        <select id="f-continue-pick">
+          <option value="">— оберіть запис —</option>
+          ${todaysGp.map(r=>`<option value="${esc(r.id)}" ${f.continuesFrom===r.id?'selected':''}>${esc(r.time)} · ${esc(r.trademark)} ${esc(r.productName)} · партія ${esc(fmtDate(r.batch))}</option>`).join('')}
+        </select>
+        ${todaysGp.length===0?'<div class="hint">Сьогодні ще немає збережених перевірок готової продукції для цієї дільниці.</div>':''}
+      </div>
+      <div class="field">
+        <label>Частина перевірки (необов'язково)</label>
+        <input type="text" id="f-continue-note" value="${esc(f.continuationNote)}" placeholder="напр. Піддон №2">
+      </div>
+    ` : ''}
+  </div>
+  `;
+}
+function renderAppearanceSection(f){
+  const overall = appearanceOverall(f.appearanceChecks);
+  return `
+  <div class="card">
+    <h2>Відповідність зовнішнього вигляду упакованого продукту</h2>
+    ${APPEARANCE_ITEMS.map(item=>`
+      <div class="field">
+        <label>${esc(item.label)}</label>
+        <div class="compliance-options" data-appearance-row="${item.id}">
+          <div class="comp-opt ${f.appearanceChecks[item.id]==='ok'?'selected':''}" data-v="ok" data-appearance="${item.id}" data-appval="ok"><span class="cico">✅</span><span class="clabel">Відповідає</span></div>
+          <div class="comp-opt ${f.appearanceChecks[item.id]==='note'?'selected':''}" data-v="note" data-appearance="${item.id}" data-appval="note"><span class="cico">⚠️</span><span class="clabel">Зауваження</span></div>
+          <div class="comp-opt ${f.appearanceChecks[item.id]==='fail'?'selected':''}" data-v="fail" data-appearance="${item.id}" data-appval="fail"><span class="cico">⛔</span><span class="clabel">Не відповідає</span></div>
+        </div>
+      </div>
+    `).join('')}
+    ${overall ? `<div class="tolerance-hint show ${overall==='ok'?'ok':'fail'}">Загальний висновок по зовнішньому вигляду: <b>${appearanceLabel(overall)}</b>${overall==='fail'?' — потрібно скласти акт невідповідності нижче.':''}</div>` : `<div class="hint">Заповніть усі пункти — загальний висновок розрахується автоматично.</div>`}
+  </div>
+
+  <div class="card">
+    <h2>Дозвіл на відхилення</h2>
+    <div class="segmented" id="f-permit-toggle">
+      <button data-permit="no" class="${!f.permitEnabled?'selected':''}">Не застосовувався</button>
+      <button data-permit="yes" class="${f.permitEnabled?'selected':''}">Фасування за дозволом</button>
+    </div>
+    ${f.permitEnabled ? `
+      <div class="row2" style="margin-top:12px;">
+        <div class="field">
+          <label>Номер дозволу</label>
+          <input type="text" id="f-permit-number" value="${esc(f.permitNumber)}" placeholder="напр. Д-12">
+        </div>
+        <div class="field">
+          <label>Дата дозволу</label>
+          <input type="date" id="f-permit-date" value="${f.permitDate}">
+        </div>
+      </div>
+      <div class="field">
+        <label>На що дозволено відхилення</label>
+        <textarea id="f-permit-desc" placeholder="Опис дозволеного відхилення…">${esc(f.permitDesc)}</textarea>
+      </div>
+    ` : ''}
+  </div>
+
+  ${overall==='fail' ? `
+  <div class="card" style="border-color:var(--red);">
+    <h2 style="color:var(--red);">Акт невідповідності (F-QC-8.7/10-05)</h2>
+    <div class="row2">
+      <div class="field">
+        <label>№ повідомлення</label>
+        <input type="text" id="f-act-number" value="${esc(f.actNumber)}" placeholder="напр. 18/07-2026">
+      </div>
+      <div class="field">
+        <label>Дата</label>
+        <input type="date" id="f-act-date" value="${f.actDate}">
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Стадія виявлення невідповідності</label>
+      <div class="chips" id="f-act-stage">
+        ${ACT_DISCOVERY_STAGES.map(s=>`<button type="button" class="chip ${f.actDiscoveryStage===s.id?'selected':''}" data-actstage="${s.id}">${esc(s.label)}</button>`).join('')}
+      </div>
+    </div>
+
+    <div class="row2">
+      <div class="field">
+        <label>№ Специфікації / № форми виробництва</label>
+        <input type="text" id="f-act-spec" value="${esc(f.actSpecNumber)}">
+      </div>
+      <div class="field">
+        <label>Дата виготовлення напівфабрикату</label>
+        <input type="date" id="f-act-semidate" value="${f.actSemiDate}">
+      </div>
+    </div>
+    <div class="row2">
+      <div class="field">
+        <label>Загальна кількість партії</label>
+        <div style="display:flex;gap:8px;">
+          <input type="number" step="0.01" id="f-act-totalqty" value="${esc(f.actTotalQty)}" placeholder="напр. 105">
+          <select id="f-act-totalunit" style="max-width:90px;">
+            <option value="шт" ${f.actTotalQtyUnit==='шт'?'selected':''}>шт</option>
+            <option value="кг" ${f.actTotalQtyUnit==='кг'?'selected':''}>кг</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label>Кількість невідповідної продукції</label>
+        <div style="display:flex;gap:8px;">
+          <input type="number" step="0.01" id="f-act-defectqty" value="${esc(f.actDefectQty)}" placeholder="напр. 26">
+          <select id="f-act-defectunit" style="max-width:90px;">
+            <option value="шт" ${f.actDefectQtyUnit==='шт'?'selected':''}>шт</option>
+            <option value="кг" ${f.actDefectQtyUnit==='кг'?'selected':''}>кг</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Вид невідповідності (можна кілька)</label>
+      <div class="chips" id="f-act-noncompl">
+        ${ACT_NONCOMPLIANCE_TYPES.map(t=>`<button type="button" class="chip ${f.actNonComplianceTypes.includes(t.id)?'selected':''}" data-actnc="${t.id}">${esc(t.label)}</button>`).join('')}
+      </div>
+      ${f.actNonComplianceTypes.includes('other') ? `<input type="text" id="f-act-nc-other" value="${esc(f.actNonComplianceOther)}" placeholder="Опишіть інше…" style="margin-top:8px;">` : ''}
+    </div>
+
+    <div class="field">
+      <label>Опис дефекту / норма-факт</label>
+      <textarea id="f-act-desc" placeholder="Наприклад: під час приймання виявлено відшарування етикетки від поверхні каністр…">${esc(f.actDesc)}</textarea>
+    </div>
+
+    <div class="field">
+      <label>Причина невідповідності (можна кілька)</label>
+      <div class="chips" id="f-act-cause">
+        ${ACT_CAUSE_CATEGORIES.map(c=>`<button type="button" class="chip ${f.actCauseCategories.includes(c.id)?'selected':''}" data-actcause="${c.id}">${esc(c.label)}</button>`).join('')}
+      </div>
+    </div>
+    <div class="field">
+      <label>Детальний опис причини невідповідності</label>
+      <textarea id="f-act-causedetail" placeholder="Детальніше про причину…">${esc(f.actCauseDetail)}</textarea>
+    </div>
+
+    <div class="row2">
+      <div class="field">
+        <label>Відповідальний за висновок — посада</label>
+        <input type="text" id="f-act-resp-pos" value="${esc(f.actResponsiblePosition)}">
+      </div>
+      <div class="field">
+        <label>Відповідальний за висновок — ПІБ</label>
+        <input type="text" id="f-act-resp-name" value="${esc(f.actResponsibleName)}" placeholder="ПІБ">
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Статус (можна кілька)</label>
+      <div class="chips" id="f-act-status">
+        ${ACT_STATUS_OPTIONS.map(s=>`<button type="button" class="chip ${f.actStatusOptions.includes(s.id)?'selected':''}" data-actstatus="${s.id}">${esc(s.label)}</button>`).join('')}
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Додаткові примітки (необов'язково)</label>
+      <textarea id="f-act-actions" placeholder="Будь-які додаткові коментарі…">${esc(f.actActions)}</textarea>
+    </div>
+
+    <div class="hint">Статус присвоїв: ${esc(state.session.name)} (інженер з якості), дата ${fmtDate(f.actDate)} — заповнюється автоматично.</div>
+  </div>
+  ` : ''}
+  `;
+}
 function renderComboList(id, items, emptyText){
   const el = document.getElementById(id);
   if(!el) return;
@@ -954,18 +1246,29 @@ function fromBaseUnits(value, unit){
   return value;
 }
 
+// Converts raw entered measurements to netto-equivalent values, subtracting
+// tare weight when the engineer measured brutto (product + packaging).
+function nettoValues(f){
+  const tare = parseFloat(f.tareWeight);
+  const useTare = f.netBrutto==='brutto' && !isNaN(tare);
+  return f.measurements
+    .map(m=>parseFloat(m))
+    .filter(v=>!isNaN(v))
+    .map(v=> useTare ? (v - tare) : v);
+}
+
 function evalToleranceHint(f){
   const hintEl = document.getElementById('f-tol-hint');
   if(!hintEl) return;
   const norm = parseFloat(f.normValue);
-  const vals = f.measurements.map(m=>parseFloat(m)).filter(v=>!isNaN(v));
+  const vals = nettoValues(f);
   if(!norm || vals.length===0){ hintEl.className='tolerance-hint'; hintEl.textContent=''; return; }
   const avg = vals.reduce((a,b)=>a+b,0)/vals.length;
   const baseNorm = toBaseUnits(norm, f.normUnit);
   const allowance = oimlAllowance(baseNorm);
   if(!allowance){
     hintEl.className='tolerance-hint show';
-    hintEl.textContent = `Середній факт: ${avg.toFixed(2)} ${f.normUnit}. Норма поза табличним діапазоном ДСТУ OIML R87 — допуск визначте самостійно.`;
+    hintEl.textContent = `Середній факт (нетто): ${avg.toFixed(2)} ${f.normUnit}. Норма поза табличним діапазоном ДСТУ OIML R87 — допуск визначте самостійно.`;
     return;
   }
   const allowedNegBase = allowance.type==='pct' ? baseNorm*allowance.value/100 : allowance.value;
@@ -974,7 +1277,7 @@ function evalToleranceHint(f){
   const within = avg >= lowerBound; // no upper limit per the standard
   const allowanceText = allowance.type==='pct' ? `мінус ${allowance.value}%` : `мінус ${allowance.value} г`;
   hintEl.className = 'tolerance-hint show '+(within?'ok':'fail');
-  hintEl.textContent = `Допуск за ДСТУ OIML R87: ${allowanceText} → нижня межа ${lowerBound.toFixed(2)} ${f.normUnit} (перевищення норми не обмежене). Середній факт: ${avg.toFixed(2)} ${f.normUnit}. ${within?'В межах допуску — але рішення приймає інженер.':'Нижче допустимої межі — перевірте замір та внесіть рішення самостійно.'}`;
+  hintEl.textContent = `Допуск за ДСТУ OIML R87: ${allowanceText} → нижня межа ${lowerBound.toFixed(2)} ${f.normUnit} (перевищення норми не обмежене). Середній факт (нетто): ${avg.toFixed(2)} ${f.normUnit}. ${within?'В межах допуску — але рішення приймає інженер.':'Нижче допустимої межі — перевірте замір та внесіть рішення самостійно.'}`;
 }
 
 /* =========================================================
@@ -984,7 +1287,7 @@ function recordSection(r){ return r.section || '27'; } // records saved before t
 
 function reportBaseRecs(date){
   const isAdmin = state.session.role==='admin';
-  let recs = state.records.filter(r=>r.date===date);
+  let recs = state.records.filter(r=>r.date===date && r.controlType===state.reportControlType);
   if(!isAdmin){
     recs = recs.filter(r=>recordSection(r)===state.session.section);
   } else if(state.reportSection!=='all'){
@@ -996,18 +1299,27 @@ function reportBaseRecs(date){
 function renderReport(){
   const date = state.reportDate;
   const isAdmin = state.session.role==='admin';
+  const isGp = state.reportControlType==='gp';
   let recs = reportBaseRecs(date);
   if(state.reportEngineer!=='all') recs = recs.filter(r=>r.engineer===state.reportEngineer);
   recs = recs.slice().sort((a,b)=> (a.time||'').localeCompare(b.time||''));
 
-  const fails = recs.filter(r=>r.compliance==='fail').length;
-  const notes = recs.filter(r=>r.compliance==='note').length;
+  const fails = recs.filter(r=>r.compliance==='fail' || r.appearanceOverall==='fail').length;
+  const notes = recs.filter(r=>r.compliance==='note' || r.appearanceOverall==='note').length;
+  const acts = recs.filter(r=>r.act).length;
   const engineers = Array.from(new Set(reportBaseRecs(date).map(r=>r.engineer)));
   const sections = knownSections();
 
   return `
   <div class="screen-head"><h1>Звіт за зміну</h1></div>
   <div class="card">
+    <div class="field">
+      <label>Тип звіту</label>
+      <div class="segmented" id="rep-type-toggle">
+        <button data-reptype="pf" class="${state.reportControlType==='pf'?'selected':''}">Проміжний контроль</button>
+        <button data-reptype="gp" class="${state.reportControlType==='gp'?'selected':''}">Готова продукція</button>
+      </div>
+    </div>
     <div class="row2">
       <div class="field">
         <label>Дата</label>
@@ -1035,6 +1347,7 @@ function renderReport(){
       <div class="summary-box ${notes?'warn':''}"><div class="snum">${notes}</div><div class="slab">Із зауваженням</div></div>
       <div class="summary-box ${fails?'warn':''}"><div class="snum">${fails}</div><div class="slab">Не відповідає</div></div>
     </div>
+    ${isGp && acts>0 ? `<div class="tolerance-hint show fail" style="margin-bottom:14px;">⚠️ Складено актів невідповідності: ${acts}</div>` : ''}
     <div style="display:flex;gap:8px;flex-wrap:wrap;">
       <button class="btn btn-secondary" id="rep-xlsx" ${recs.length===0?'disabled':''}>⬇️ Excel</button>
       <button class="btn btn-secondary" id="rep-pdf" ${recs.length===0?'disabled':''}>⬇️ PDF</button>
@@ -1048,24 +1361,30 @@ function renderReport(){
     <div class="table-wrap">
       <table>
         <thead><tr>
-          <th>Час</th>${isAdmin?'<th>Дільниця</th>':''}<th>Інженер</th><th>Тип</th><th>ТМ</th><th>Найменування</th><th>Партія</th><th>Термін</th>
-          <th>Операція</th><th>Норма</th><th>Заміри</th><th>Н/Б</th><th>Відповідність</th><th>Обладнання</th><th>Зауваження</th>
+          <th>Час</th>${isAdmin?'<th>Дільниця</th>':''}<th>Інженер</th><th>ТМ</th><th>Найменування</th><th>Партія</th><th>Термін</th>
+          <th>Операція</th><th>Норма</th><th>Заміри</th><th>Н/Б</th><th>Відповідність</th>
+          ${isGp?'<th>Зовн. вигляд</th><th>Дозвіл</th><th>Акт</th>':''}
+          <th>Обладнання</th><th>Зауваження</th>
         </tr></thead>
         <tbody>
         ${recs.map(r=>`<tr>
           <td>${esc(r.time)}</td>
           ${isAdmin?`<td>${esc(recordSection(r))}</td>`:''}
           <td>${esc(r.engineer)}</td>
-          <td>${r.controlType==='pf'?'НФ':'ГП'}</td>
           <td>${esc(r.trademark)}</td>
-          <td>${esc(r.productName)}</td>
+          <td>${esc(r.productName)}${r.continuesFrom?' <span class="hint" style="display:inline;">↳ продовж.</span>':''}</td>
           <td>${esc(fmtDate(r.batch))}</td>
           <td>${esc(fmtDate(r.expiry))}</td>
-          <td>${esc((r.ops||[]).map(o=>o==='rozlyv'?'Розлив':'Поклейка').join(', '))}</td>
+          <td>${esc(opsLabel(r.ops))}</td>
           <td>${esc(r.normValue)} ${esc(r.normUnit)}</td>
-          <td>${esc((r.measurements||[]).filter(m=>m!=='').join('; '))}</td>
+          <td>${esc(displayMeasurements(r))}</td>
           <td>${r.netBrutto==='netto'?'Нетто':'Брутто'}</td>
           <td><span class="badge ${r.compliance}">${r.compliance==='ok'?'Відповідає':r.compliance==='note'?'Із зауваж.':'Не відп.'}</span></td>
+          ${isGp?`
+          <td><span class="badge ${r.appearanceOverall||''}">${appearanceLabel(r.appearanceOverall)}</span></td>
+          <td>${r.permit?esc(r.permit.number||'так'):'—'}</td>
+          <td>${r.act?esc(r.act.number||'так'):'—'}</td>
+          `:''}
           <td>${esc(r.equipment||'—')}</td>
           <td>${esc(r.comment||'—')}</td>
         </tr>`).join('')}
@@ -1077,13 +1396,19 @@ function renderReport(){
 }
 
 function buildReportText(recs, date){
-  let lines = [`ЗВІТ КОНТРОЛЮ ЯКОСТІ — ${fmtDate(date)}`, ''];
+  const isGp = state.reportControlType==='gp';
+  let lines = [`ЗВІТ КОНТРОЛЮ ЯКОСТІ — ${isGp?'ГОТОВА ПРОДУКЦІЯ':'ПРОМІЖНИЙ КОНТРОЛЬ'} — ${fmtDate(date)}`, ''];
   recs.forEach((r,i)=>{
-    lines.push(`${i+1}. [${r.time}] Дільниця ${recordSection(r)} — ${r.controlType==='pf'?'Напівфабрикат':'Готова продукція'} — ${r.trademark} ${r.productName}`);
+    lines.push(`${i+1}. [${r.time}] Дільниця ${recordSection(r)} — ${r.trademark} ${r.productName}`);
     lines.push(`   Інженер: ${r.engineer} | Партія: ${fmtDate(r.batch)} | Термін: ${fmtDate(r.expiry)}`);
-    lines.push(`   Операція: ${(r.ops||[]).map(o=>o==='rozlyv'?'Розлив':'Поклейка').join(', ')||'—'} | Норма: ${r.normValue} ${r.normUnit} (${r.netBrutto==='netto'?'нетто':'брутто'})`);
-    lines.push(`   Заміри: ${(r.measurements||[]).filter(m=>m!=='').join('; ')||'—'}`);
+    lines.push(`   Операція: ${opsLabel(r.ops)||'—'} | Норма: ${r.normValue} ${r.normUnit} (${r.netBrutto==='netto'?'нетто':'брутто'})`);
+    lines.push(`   Заміри (нетто): ${displayMeasurements(r)||'—'}`);
     lines.push(`   Відповідність: ${r.compliance==='ok'?'Відповідає':r.compliance==='note'?'Із зауваженням':'Не відповідає'}${r.equipment?` | Обладнання: ${r.equipment}`:''}`);
+    if(isGp){
+      lines.push(`   Зовнішній вигляд: ${appearanceLabel(r.appearanceOverall)}`);
+      if(r.permit) lines.push(`   Дозвіл на відхилення: №${r.permit.number} від ${fmtDate(r.permit.date)} — ${r.permit.desc||''}`);
+      if(r.act) lines.push(`   АКТ НЕВІДПОВІДНОСТІ №${r.act.number} від ${fmtDate(r.act.date)}: ${r.act.desc}${r.act.actions?` | Заходи: ${r.act.actions}`:''}`);
+    }
     if(r.comment) lines.push(`   Зауваження: ${r.comment}`);
     lines.push('');
   });
@@ -1111,25 +1436,34 @@ async function exportXLSX(recs, date){
   if(!window.XLSX){
     await loadScript('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');
   }
-  const rows = recs.map(r=>({
-    'Час': r.time, 'Дільниця': recordSection(r), 'Інженер': r.engineer,
-    'Тип': r.controlType==='pf'?'Напівфабрикат':'Готова продукція',
-    'Торгова марка': r.trademark, 'Найменування': r.productName, 'Код': r.productCode,
-    'Партія': fmtDate(r.batch), 'Термін придатності': fmtDate(r.expiry),
-    'Операція': (r.ops||[]).map(o=>o==='rozlyv'?'Розлив':'Поклейка').join(', '),
-    'Норма': r.normValue, 'Одиниця': r.normUnit,
-    'Заміри': (r.measurements||[]).filter(m=>m!=='').join('; '),
-    'Нетто/Брутто': r.netBrutto==='netto'?'Нетто':'Брутто',
-    'Відповідність': r.compliance==='ok'?'Відповідає':r.compliance==='note'?'Із зауваженням':'Не відповідає',
-    'Обладнання': r.equipment||'', 'Зауваження': r.comment||'',
-  }));
+  const isGp = state.reportControlType==='gp';
+  const rows = recs.map(r=>{
+    const row = {
+      'Час': r.time, 'Дільниця': recordSection(r), 'Інженер': r.engineer,
+      'Торгова марка': r.trademark, 'Найменування': r.productName, 'Код': r.productCode,
+      'Партія': fmtDate(r.batch), 'Термін придатності': fmtDate(r.expiry),
+      'Операція': opsLabel(r.ops),
+      'Норма': r.normValue, 'Одиниця': r.normUnit,
+      'Заміри (нетто)': displayMeasurements(r),
+      'Нетто/Брутто': r.netBrutto==='netto'?'Нетто':'Брутто',
+      'Відповідність': r.compliance==='ok'?'Відповідає':r.compliance==='note'?'Із зауваженням':'Не відповідає',
+    };
+    if(isGp){
+      row['Зовнішній вигляд'] = appearanceLabel(r.appearanceOverall);
+      row['Дозвіл на відхилення'] = r.permit ? `№${r.permit.number} від ${fmtDate(r.permit.date)} — ${r.permit.desc||''}` : '';
+      row['Акт невідповідності'] = r.act ? `№${r.act.number} від ${fmtDate(r.act.date)}: ${r.act.desc}${r.act.actions?` | Заходи: ${r.act.actions}`:''}` : '';
+    }
+    row['Обладнання'] = r.equipment||'';
+    row['Зауваження'] = r.comment||'';
+    return row;
+  });
   const ws = XLSX.utils.json_to_sheet(rows);
   ws['!cols'] = Object.keys(rows[0]||{}).map(()=>({wch:16}));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Звіт');
   const arrayBuf = XLSX.write(wb, {bookType:'xlsx', type:'array'});
   const blob = new Blob([arrayBuf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
-  saveBlob(blob, `Звіт_контролю_${date}.xlsx`);
+  saveBlob(blob, `Звіт_${isGp?'ГП':'проміжний'}_${date}.xlsx`);
 }
 
 async function exportPDF(recs, date){
@@ -1139,6 +1473,7 @@ async function exportPDF(recs, date){
   if(!(window.jspdf && window.jspdf.jsPDF && window.jspdf.jsPDF.API && window.jspdf.jsPDF.API.autoTable)){
     await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js');
   }
+  const isGp = state.reportControlType==='gp';
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({orientation:'landscape'});
   // jsPDF's built-in fonts don't cover Cyrillic — without this, Ukrainian text renders as garbled symbols.
@@ -1146,16 +1481,22 @@ async function exportPDF(recs, date){
   doc.addFont('NotoSans-Regular.ttf', 'NotoSans', 'normal');
   doc.setFont('NotoSans');
   doc.setFontSize(13);
-  doc.text(`Звіт контролю якості — ${fmtDate(date)}`, 14, 14);
-  const head = [['Час','Дільниця','Інженер','Тип','ТМ','Найменування','Партія','Термін','Операція','Норма','Заміри','Н/Б','Відповідність','Обладнання','Зауваження']];
+  doc.text(`Звіт контролю якості — ${isGp?'готова продукція':'проміжний контроль'} — ${fmtDate(date)}`, 14, 14);
+  const head = [['Час','Дільниця','Інженер','ТМ','Найменування','Партія','Термін','Операція','Норма','Заміри','Н/Б','Відповідність',
+    ...(isGp?['Зовн. вигляд','Дозвіл','Акт']:[]),'Обладнання','Зауваження']];
   const body = recs.map(r=>[
-    r.time, recordSection(r), r.engineer, r.controlType==='pf'?'НФ':'ГП', r.trademark, r.productName,
+    r.time, recordSection(r), r.engineer, r.trademark, r.productName,
     fmtDate(r.batch), fmtDate(r.expiry),
-    (r.ops||[]).map(o=>o==='rozlyv'?'Розлив':'Поклейка').join(', '),
+    opsLabel(r.ops),
     `${r.normValue} ${r.normUnit}`,
-    (r.measurements||[]).filter(m=>m!=='').join('; '),
+    displayMeasurements(r),
     r.netBrutto==='netto'?'Н':'Б',
     r.compliance==='ok'?'Відповідає':r.compliance==='note'?'Із зауваж.':'Не відповідає',
+    ...(isGp?[
+      appearanceLabel(r.appearanceOverall),
+      r.permit?`№${r.permit.number}`:'—',
+      r.act?`№${r.act.number}`:'—',
+    ]:[]),
     r.equipment||'', r.comment||'',
   ]);
   doc.autoTable({
@@ -1165,7 +1506,7 @@ async function exportPDF(recs, date){
     bodyStyles:{font:'NotoSans'},
   });
   const blob = doc.output('blob');
-  saveBlob(blob, `Звіт_контролю_${date}.pdf`);
+  saveBlob(blob, `Звіт_${isGp?'ГП':'проміжний'}_${date}.pdf`);
 }
 
 function loadScript(src){
@@ -1210,7 +1551,7 @@ function renderAdminProducts(){
         <div class="list-item" data-edit-product="${esc(p.code)}" style="cursor:pointer;">
           <div>
             <div class="li-name">${esc(p.name)}</div>
-            <div class="li-sub">${esc(p.trademark)} · ${p.type==='pf'?'Напівфабрикат':'Готова продукція'} · код ${esc(p.code)}${p.normValue?` · норма ${esc(p.normValue)} ${esc(p.normUnit||'')}`:''}${p.status?` · ${esc(p.status)}`:''}</div>
+            <div class="li-sub">${esc(p.trademark)} · ${controlTypeLabel(p.type)} · код ${esc(p.code)}${p.normValue?` · норма ${esc(p.normValue)} ${esc(p.normUnit||'')}`:''}${p.status?` · ${esc(p.status)}`:''}</div>
           </div>
           <span style="color:var(--ink-soft);">✎</span>
         </div>
@@ -1404,12 +1745,120 @@ function attachFormEvents(){
   // Comment
   document.getElementById('f-comment').oninput = e=>{ f.comment=e.target.value; };
 
+  // Appearance checklist (Готова продукція only)
+  if(f.controlType==='gp'){
+    document.querySelectorAll('[data-appearance]').forEach(el=>{
+      el.onclick = ()=>{ f.appearanceChecks[el.dataset.appearance] = el.dataset.appval; render(); };
+    });
+    const permitToggle = document.getElementById('f-permit-toggle');
+    if(permitToggle) permitToggle.querySelectorAll('[data-permit]').forEach(b=>{
+      b.onclick = ()=>{ f.permitEnabled = (b.dataset.permit==='yes'); render(); };
+    });
+    const permitNum = document.getElementById('f-permit-number');
+    if(permitNum) permitNum.oninput = e=>{ f.permitNumber=e.target.value; };
+    const permitDate = document.getElementById('f-permit-date');
+    if(permitDate) permitDate.onchange = e=>{ f.permitDate=e.target.value; };
+    const permitDesc = document.getElementById('f-permit-desc');
+    if(permitDesc) permitDesc.oninput = e=>{ f.permitDesc=e.target.value; };
+
+    // Continuation-of-inspection
+    const contToggle = document.getElementById('f-continue-toggle');
+    if(contToggle) contToggle.querySelectorAll('[data-continue]').forEach(b=>{
+      b.onclick = ()=>{
+        f.showContinuePicker = (b.dataset.continue==='yes');
+        if(!f.showContinuePicker) f.continuesFrom='';
+        render();
+      };
+    });
+    const contPick = document.getElementById('f-continue-pick');
+    if(contPick) contPick.onchange = e=>{
+      f.continuesFrom = e.target.value;
+      const rec = state.records.find(r=>r.id===f.continuesFrom);
+      if(rec){
+        f.trademark = rec.trademark; f.tmQuery = rec.trademark;
+        f.productCode = rec.productCode; f.productName = rec.productName; f.prodQuery = rec.productName;
+        f.batch = rec.batch; f.expiry = rec.expiry;
+      }
+      render();
+    };
+    const contNote = document.getElementById('f-continue-note');
+    if(contNote) contNote.oninput = e=>{ f.continuationNote=e.target.value; };
+
+    // Act fields
+    const actNum = document.getElementById('f-act-number');
+    if(actNum) actNum.oninput = e=>{ f.actNumber=e.target.value; };
+    const actDate = document.getElementById('f-act-date');
+    if(actDate) actDate.onchange = e=>{ f.actDate=e.target.value; };
+    document.querySelectorAll('[data-actstage]').forEach(b=>{
+      b.onclick = ()=>{ f.actDiscoveryStage=b.dataset.actstage; render(); };
+    });
+    const actSpec = document.getElementById('f-act-spec');
+    if(actSpec) actSpec.oninput = e=>{ f.actSpecNumber=e.target.value; };
+    const actSemiDate = document.getElementById('f-act-semidate');
+    if(actSemiDate) actSemiDate.onchange = e=>{ f.actSemiDate=e.target.value; };
+    const actTotalQty = document.getElementById('f-act-totalqty');
+    if(actTotalQty) actTotalQty.oninput = e=>{ f.actTotalQty=e.target.value; };
+    const actTotalUnit = document.getElementById('f-act-totalunit');
+    if(actTotalUnit) actTotalUnit.onchange = e=>{ f.actTotalQtyUnit=e.target.value; };
+    const actDefectQty = document.getElementById('f-act-defectqty');
+    if(actDefectQty) actDefectQty.oninput = e=>{ f.actDefectQty=e.target.value; };
+    const actDefectUnit = document.getElementById('f-act-defectunit');
+    if(actDefectUnit) actDefectUnit.onchange = e=>{ f.actDefectQtyUnit=e.target.value; };
+    document.querySelectorAll('[data-actnc]').forEach(b=>{
+      b.onclick = ()=>{
+        const id = b.dataset.actnc;
+        if(f.actNonComplianceTypes.includes(id)) f.actNonComplianceTypes = f.actNonComplianceTypes.filter(x=>x!==id);
+        else f.actNonComplianceTypes.push(id);
+        render();
+      };
+    });
+    const ncOther = document.getElementById('f-act-nc-other');
+    if(ncOther) ncOther.oninput = e=>{ f.actNonComplianceOther=e.target.value; };
+    const actDesc = document.getElementById('f-act-desc');
+    if(actDesc) actDesc.oninput = e=>{ f.actDesc=e.target.value; };
+    document.querySelectorAll('[data-actcause]').forEach(b=>{
+      b.onclick = ()=>{
+        const id = b.dataset.actcause;
+        if(f.actCauseCategories.includes(id)) f.actCauseCategories = f.actCauseCategories.filter(x=>x!==id);
+        else f.actCauseCategories.push(id);
+        render();
+      };
+    });
+    const actCauseDetail = document.getElementById('f-act-causedetail');
+    if(actCauseDetail) actCauseDetail.oninput = e=>{ f.actCauseDetail=e.target.value; };
+    const actRespPos = document.getElementById('f-act-resp-pos');
+    if(actRespPos) actRespPos.oninput = e=>{ f.actResponsiblePosition=e.target.value; };
+    const actRespName = document.getElementById('f-act-resp-name');
+    if(actRespName) actRespName.oninput = e=>{ f.actResponsibleName=e.target.value; };
+    document.querySelectorAll('[data-actstatus]').forEach(b=>{
+      b.onclick = ()=>{
+        const id = b.dataset.actstatus;
+        if(f.actStatusOptions.includes(id)) f.actStatusOptions = f.actStatusOptions.filter(x=>x!==id);
+        else f.actStatusOptions.push(id);
+        render();
+      };
+    });
+    const actActions = document.getElementById('f-act-actions');
+    if(actActions) actActions.oninput = e=>{ f.actActions=e.target.value; };
+  }
+
+  // Tare weight (both control types, only meaningful in brutto mode)
+  const tareInput = document.getElementById('f-tare');
+  if(tareInput) tareInput.oninput = e=>{ f.tareWeight=e.target.value; render(); evalToleranceHint(state.form); };
+
   // Save
   document.getElementById('f-save').onclick = async ()=>{
     if(!f.section){ showToast('Оберіть дільницю','⚠️'); return; }
     if(!f.trademark || !f.productName){ showToast('Оберіть торгову марку та продукцію','⚠️'); return; }
     if(!f.batch){ showToast('Вкажіть партію (дату НФ)','⚠️'); return; }
     if(!f.compliance){ showToast('Оберіть відповідність','⚠️'); return; }
+    let appOverall = '';
+    if(f.controlType==='gp'){
+      if(APPEARANCE_ITEMS.some(it=>!f.appearanceChecks[it.id])){ showToast('Заповніть усі пункти зовнішнього вигляду','⚠️'); return; }
+      appOverall = appearanceOverall(f.appearanceChecks);
+      if(appOverall==='fail' && !f.actDesc.trim()){ showToast('Опишіть невідповідність в акті','⚠️'); return; }
+      if(f.permitEnabled && !f.permitNumber.trim()){ showToast('Вкажіть номер дозволу на відхилення','⚠️'); return; }
+    }
     const saveBtn = document.getElementById('f-save');
     saveBtn.disabled = true; saveBtn.textContent = 'Зберігаємо…';
     const record = {
@@ -1422,11 +1871,34 @@ function attachFormEvents(){
       ops: f.ops.slice(),
       normValue: f.normValue, normUnit: f.normUnit,
       netBrutto: f.netBrutto,
+      tareWeight: f.tareWeight,
       measurements: f.measurements.slice(),
+      netMeasurements: nettoValues(f).map(v=>Math.round(v*100)/100),
       compliance: f.compliance,
       equipment: f.equipment,
       comment: f.comment,
     };
+    if(f.controlType==='gp'){
+      record.continuesFrom = f.continuesFrom || null;
+      record.continuationNote = f.continuationNote || '';
+      record.appearanceChecks = Object.assign({}, f.appearanceChecks);
+      record.appearanceOverall = appOverall;
+      record.permit = f.permitEnabled ? {number:f.permitNumber, date:f.permitDate, desc:f.permitDesc} : null;
+      record.act = appOverall==='fail' ? {
+        number:f.actNumber, date:f.actDate,
+        discoveryStage:f.actDiscoveryStage,
+        specNumber:f.actSpecNumber, semiDate:f.actSemiDate,
+        totalQty:f.actTotalQty, totalQtyUnit:f.actTotalQtyUnit,
+        defectQty:f.actDefectQty, defectQtyUnit:f.actDefectQtyUnit,
+        nonComplianceTypes:f.actNonComplianceTypes.slice(), nonComplianceOther:f.actNonComplianceOther,
+        desc:f.actDesc,
+        causeCategories:f.actCauseCategories.slice(), causeDetail:f.actCauseDetail,
+        responsiblePosition:f.actResponsiblePosition, responsibleName:f.actResponsibleName,
+        statusOptions:f.actStatusOptions.slice(),
+        actions:f.actActions,
+        assignedBy: state.session.name,
+      } : null;
+    }
     // Saved as its own Firestore document — the live listener will add it to
     // state.records automatically, no manual push needed.
     const ok = await saveNewRecord(record);
@@ -1446,6 +1918,9 @@ function attachReportEvents(){
   document.getElementById('rep-eng').onchange = e=>{ state.reportEngineer=e.target.value; render(); };
   const secSel = document.getElementById('rep-section');
   if(secSel) secSel.onchange = e=>{ state.reportSection=e.target.value; state.reportEngineer='all'; render(); };
+  document.querySelectorAll('#rep-type-toggle [data-reptype]').forEach(b=>{
+    b.onclick = ()=>{ state.reportControlType=b.dataset.reptype; state.reportEngineer='all'; render(); };
+  });
 
   const getRecs = ()=>{
     let recs = reportBaseRecs(state.reportDate);
