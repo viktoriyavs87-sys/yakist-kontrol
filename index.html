@@ -784,7 +784,8 @@ function renderActSaved(){
       ${esc(r.trademark)} ${esc(r.productName)} · партія ${esc(fmtDate(r.batch))}<br>
       № повідомлення: ${esc(r.act.number||'—')}
     </p>
-    <button class="btn btn-primary btn-block" id="act-download-now" style="padding:14px;font-size:15px;">⬇️ Завантажити акт (PDF)</button>
+    <button class="btn btn-primary btn-block" id="act-download-pdf" style="padding:14px;font-size:15px;">⬇️ Завантажити акт (PDF)</button>
+    <button class="btn btn-secondary btn-block" id="act-download-docx" style="margin-top:10px;padding:14px;font-size:15px;">⬇️ Завантажити акт (Word — можна редагувати)</button>
     <button class="btn btn-secondary btn-block" id="act-done" style="margin-top:10px;">Готово, на головну</button>
   </div>
   `;
@@ -809,7 +810,10 @@ function renderActsList(){
             <div class="li-name">№ ${esc(r.act.number||'без номера')} — ${esc(r.trademark)} ${esc(r.productName)}</div>
             <div class="li-sub">${esc(fmtDate(r.date))}, ${esc(r.time)} · партія ${esc(fmtDate(r.batch))}${isAdmin?` · дільниця ${esc(recordSection(r))}`:''} · ${esc(r.engineer)}</div>
           </div>
-          <button class="btn btn-sm btn-danger" data-download-act="${esc(r.id)}">⬇️ PDF</button>
+          <div style="display:flex;gap:6px;">
+            <button class="btn btn-sm btn-danger" data-download-act="${esc(r.id)}" data-format="pdf">⬇️ PDF</button>
+            <button class="btn btn-sm btn-secondary" data-download-act="${esc(r.id)}" data-format="docx">⬇️ Word</button>
+          </div>
         </div>
       `).join('')
     }
@@ -1824,6 +1828,194 @@ async function downloadActPDF(record){
   saveBlob(blob, `Акт_${(a.number||'без_номера').replace(/[\/\\]/g,'-')}_${record.date}.pdf`);
 }
 
+// Renders the same act as an editable Word (.docx) document, so engineers can
+// open it in Word afterwards to add a signature, fix a typo, etc.
+async function downloadActDOCX(record){
+  if(!window.docx){
+    await loadScript('https://cdn.jsdelivr.net/npm/docx@8.5/build/index.umd.min.js');
+  }
+  const {
+    Document, Paragraph, Table, TableRow, TableCell, TextRun, ImageRun, Packer,
+    WidthType, AlignmentType, ShadingType, VerticalAlign, BorderStyle
+  } = window.docx;
+
+  const a = record.act || {};
+  const CELL_MARGIN = {top:60, bottom:60, left:80, right:80};
+  const BORDER = { style: BorderStyle.SINGLE, size: 2, color: 'BEBEBE' };
+  const ALL_BORDERS = { top:BORDER, bottom:BORDER, left:BORDER, right:BORDER };
+
+  const cell = (text, opts)=>{
+    opts = opts||{};
+    return new TableCell({
+      width: opts.width ? {size:opts.width, type:WidthType.DXA} : undefined,
+      columnSpan: opts.colSpan, rowSpan: opts.rowSpan,
+      verticalAlign: VerticalAlign.CENTER,
+      margins: CELL_MARGIN,
+      borders: ALL_BORDERS,
+      shading: opts.fill ? {type:ShadingType.CLEAR, fill:opts.fill} : undefined,
+      children: [new Paragraph({
+        alignment: opts.align || AlignmentType.LEFT,
+        children: [new TextRun({text: String(text==null?'':text), bold: !!opts.bold, color: opts.color, size: opts.size||18})],
+      })],
+    });
+  };
+  const checkboxCell = (checked, width)=> new TableCell({
+    width: {size:width, type:WidthType.DXA},
+    verticalAlign: VerticalAlign.CENTER,
+    margins: CELL_MARGIN,
+    borders: ALL_BORDERS,
+    children: [new Paragraph({
+      alignment: AlignmentType.CENTER,
+      children: [new TextRun({text: checked ? '☒' : '☐', size: 22, color: checked ? 'B23429' : '3C3C3C', bold: checked})],
+    })],
+  });
+  const sectionTitleEl = (num, text)=> new Table({
+    width:{size:100, type:WidthType.PERCENTAGE},
+    rows:[new TableRow({children:[
+      new TableCell({
+        borders: ALL_BORDERS,
+        shading:{type:ShadingType.CLEAR, fill:'12362F'},
+        margins: CELL_MARGIN,
+        children:[new Paragraph({alignment:AlignmentType.CENTER, children:[new TextRun({text: num+'. '+text, bold:true, color:'FFFFFF', size:19})]})],
+      }),
+    ]}),
+  ]});
+  const subLabelEl = (text)=> new Paragraph({spacing:{before:80,after:40}, children:[new TextRun({text, size:17, color:'3C3C3C'})]});
+  const checkboxGridRow = (items, selectedIds)=>{
+    const w = Math.floor(9350/items.length);
+    return new Table({
+      width:{size:100, type:WidthType.PERCENTAGE},
+      rows:[
+        new TableRow({children: items.map(it=>cell(it.label, {width:w, fill:'F0F2F0', size:12}))}),
+        new TableRow({children: items.map(it=>checkboxCell(selectedIds.includes(it.id), w))}),
+      ],
+    });
+  };
+  const checklistTwoCol = (items, selectedIds)=>{
+    const half = Math.ceil(items.length/2);
+    const left = items.slice(0,half), right = items.slice(half);
+    const rows = [];
+    for(let i=0;i<Math.max(left.length,right.length);i++){
+      rows.push(new TableRow({children:[
+        cell(left[i]?left[i].label:'', {width:4200, size:16}),
+        checkboxCell(left[i]?selectedIds.includes(left[i].id):false, 500),
+        cell(right[i]?right[i].label:'', {width:4200, size:16}),
+        checkboxCell(right[i]?selectedIds.includes(right[i].id):false, 500),
+      ]}));
+    }
+    return new Table({width:{size:100,type:WidthType.PERCENTAGE}, rows});
+  };
+  const infoTableEl = (rows)=> new Table({
+    width:{size:100, type:WidthType.PERCENTAGE},
+    rows: rows.map(([label,value])=>new TableRow({children:[
+      cell(label, {width:3000, color:'64645F', size:16}),
+      cell(value||'—', {width:6350, size:17}),
+    ]})),
+  });
+  const textBoxEl = (value)=> new Table({width:{size:100,type:WidthType.PERCENTAGE}, rows:[new TableRow({children:[cell(value||'—',{size:17})]})]});
+  const signRowEl = (position, name, extraLabel, extraVal)=>{
+    const head = ['Посада','ПІБ','Підпис'];
+    const body = [position||'—', name||'—', ''];
+    if(extraLabel){ head.push(extraLabel); body.push(extraVal); }
+    const w = Math.floor(9350/head.length);
+    return new Table({width:{size:100,type:WidthType.PERCENTAGE}, rows:[
+      new TableRow({children: head.map(h=>cell(h,{width:w, fill:'F0F2F0', bold:true, size:16}))}),
+      new TableRow({children: body.map(b=>cell(b,{width:w, size:17}))}),
+    ]});
+  };
+
+  // Fetch the embedded logo (data URL) as raw bytes for ImageRun
+  const logoBytes = await (await fetch(COMPANY_LOGO_B64)).arrayBuffer();
+
+  const children = [];
+  children.push(new Table({
+    width:{size:100, type:WidthType.PERCENTAGE},
+    rows:[
+      new TableRow({children:[
+        new TableCell({rowSpan:3, width:{size:5500,type:WidthType.DXA}, borders:ALL_BORDERS, margins:CELL_MARGIN, verticalAlign:VerticalAlign.CENTER, children:[
+          new Paragraph({children:[new ImageRun({data: logoBytes, transformation:{width:70, height:53}, type:'png'})]}),
+          new Paragraph({children:[new TextRun({text:'GMP ISO 22716 · QMS ISO 9001', size:14, color:'787878'})]}),
+          new Paragraph({children:[new TextRun({text:'Повідомлення про невідповідність продукції / напівфабрикату', bold:true, size:19})]}),
+        ]}),
+        cell('Дата:', {width:1700, color:'5A5A5A', size:16}),
+        cell(fmtDate(a.date), {width:2150, size:17}),
+      ]}),
+      new TableRow({children:[cell('№ повідомлення:', {width:1700, color:'5A5A5A', size:16}), cell(a.number||'—', {width:2150, size:17})]}),
+      new TableRow({children:[cell('Сторінка / Сторінок:', {width:1700, color:'5A5A5A', size:16}), cell('Сторінка 1 з 1', {width:2150, size:17})]}),
+    ],
+  }));
+  children.push(new Paragraph({text:''}));
+
+  children.push(sectionTitleEl(1, 'Стадія виявлення невідповідності'));
+  children.push(checkboxGridRow(ACT_DISCOVERY_STAGES, a.discoveryStage?[a.discoveryStage]:[]));
+  children.push(new Paragraph({text:''}));
+
+  children.push(sectionTitleEl(2, 'Ідентифікація ГП / Напівфабрикату'));
+  children.push(infoTableEl([
+    ['Найменування ГП/Напівфабрикату', `${record.trademark} ${record.productName}`],
+    ['Артикул / Складський код', record.productCode],
+    ['№ Специфікації / № форми виробництва', a.specNumber],
+    ['Дата виготовлення напівфабрикату', fmtDate(a.semiDate)],
+    ['№ Партії ГП', fmtDate(record.batch)],
+    ['Загальна кількість партії', a.totalQty ? `${a.totalQty} ${a.totalQtyUnit}` : '—'],
+    ['Кількість невідповідної продукції', a.defectQty ? `${a.defectQty} ${a.defectQtyUnit}` : '—'],
+  ]));
+  children.push(new Paragraph({text:''}));
+
+  children.push(sectionTitleEl(3, 'Вид невідповідності'));
+  children.push(checklistTwoCol(ACT_NONCOMPLIANCE_TYPES, a.nonComplianceTypes||[]));
+  if((a.nonComplianceTypes||[]).includes('other')){
+    children.push(subLabelEl('Інше (уточнення): ' + (a.nonComplianceOther||'—')));
+  }
+  children.push(subLabelEl('Вид невідповідності (Опис дефекту / норма-факт):'));
+  children.push(textBoxEl(a.desc));
+  children.push(new Paragraph({text:''}));
+
+  children.push(sectionTitleEl(4, 'Підготував'));
+  children.push(signRowEl('Інженер з якості', record.engineer));
+  children.push(new Paragraph({text:''}));
+
+  children.push(sectionTitleEl(5, 'Причина невідповідності'));
+  children.push(checkboxGridRow(ACT_CAUSE_CATEGORIES, a.causeCategories||[]));
+  children.push(subLabelEl('Детальний опис причини невідповідності:'));
+  children.push(textBoxEl(a.causeDetail));
+  children.push(new Paragraph({text:''}));
+
+  children.push(sectionTitleEl(6, 'Відповідальний за висновок'));
+  children.push(signRowEl(a.responsiblePosition||'Начальник виробництва', a.responsibleName));
+  children.push(new Paragraph({text:''}));
+
+  children.push(sectionTitleEl(7, 'Статус'));
+  children.push(checkboxGridRow(ACT_STATUS_OPTIONS, a.statusOptions||[]));
+  children.push(new Paragraph({text:''}));
+
+  if(a.actions){
+    children.push(subLabelEl('Додаткові примітки:'));
+    children.push(textBoxEl(a.actions));
+    children.push(new Paragraph({text:''}));
+  }
+
+  children.push(sectionTitleEl(8, 'Статус присвоїв'));
+  children.push(signRowEl('Інженер з якості', a.assignedBy||record.engineer, 'Дата:', fmtDate(a.date)));
+  children.push(new Paragraph({text:''}));
+  children.push(new Paragraph({children:[new TextRun({text:'F-QC-8.7/10-05', size:14, color:'8C8C8C'})]}));
+
+  // Photo evidence, each on its own page
+  if(a.photos && a.photos.length){
+    for(const p of a.photos){
+      const bytes = await (await fetch(p.data)).arrayBuffer();
+      const maxW = 500;
+      const scale = Math.min(1, maxW/p.w);
+      children.push(new Paragraph({pageBreakBefore:true, children:[new TextRun({text:`Фото невідповідності — № ${a.number||''}`, bold:true, size:19})]}));
+      children.push(new Paragraph({children:[new ImageRun({data:bytes, transformation:{width:p.w*scale, height:p.h*scale}, type:'jpg'})]}));
+    }
+  }
+
+  const wordDoc = new Document({sections:[{children}]});
+  const blob = await Packer.toBlob(wordDoc);
+  saveBlob(blob, `Акт_${(a.number||'без_номера').replace(/[\/\\]/g,'-')}_${record.date}.docx`);
+}
+
 function loadScript(src){
   return new Promise((resolve,reject)=>{
     const existing = document.querySelector(`script[src="${src}"]`);
@@ -1961,13 +2153,18 @@ function attachScreenEvents(){
   if(state.screen==='admin') attachAdminEvents();
   if(state.screen==='acts') attachActDownloadButtons();
   if(state.screen==='actSaved'){
-    const dlBtn = document.getElementById('act-download-now');
-    if(dlBtn) dlBtn.onclick = async ()=>{
-      dlBtn.disabled = true; const orig = dlBtn.textContent; dlBtn.textContent = 'Формування…';
-      try{ await downloadActPDF(state.lastActRecord); showToast('Акт завантажено','✅'); }
-      catch(e){ console.error(e); showToast('Помилка: '+(e && e.message ? e.message : e), '⚠️', 6000); }
-      dlBtn.disabled = false; dlBtn.textContent = orig;
+    const bindDl = (id, fn)=>{
+      const btn = document.getElementById(id);
+      if(!btn) return;
+      btn.onclick = async ()=>{
+        btn.disabled = true; const orig = btn.textContent; btn.textContent = 'Формування…';
+        try{ await fn(state.lastActRecord); showToast('Акт завантажено','✅'); }
+        catch(e){ console.error(e); showToast('Помилка: '+(e && e.message ? e.message : e), '⚠️', 6000); }
+        btn.disabled = false; btn.textContent = orig;
+      };
     };
+    bindDl('act-download-pdf', downloadActPDF);
+    bindDl('act-download-docx', downloadActDOCX);
     const doneBtn = document.getElementById('act-done');
     if(doneBtn) doneBtn.onclick = ()=>{ state.lastActRecord=null; state.screen='home'; render(); };
   }
@@ -2270,8 +2467,12 @@ function attachActDownloadButtons(){
     b.onclick = async ()=>{
       const rec = state.records.find(r=>r.id===b.dataset.downloadAct);
       if(!rec){ showToast('Запис не знайдено','⚠️'); return; }
+      const fmt = b.dataset.format || 'pdf';
       b.disabled = true; const orig = b.textContent; b.textContent = 'Формування…';
-      try{ await downloadActPDF(rec); showToast('Акт завантажено','✅'); }
+      try{
+        if(fmt==='docx') await downloadActDOCX(rec); else await downloadActPDF(rec);
+        showToast('Акт завантажено','✅');
+      }
       catch(e){ console.error(e); showToast('Помилка: '+(e && e.message ? e.message : e), '⚠️', 6000); }
       b.disabled = false; b.textContent = orig;
     };
