@@ -1017,11 +1017,13 @@ function renderForm(){
 
   <div class="card">
     <h2>Додатково</h2>
+    ${f.controlType==='pf' ? `
     <div class="field combo">
       <label>Обладнання для фасування</label>
       <input type="text" class="combo-input" id="f-equip-input" placeholder="Оберіть або введіть нове…" value="${esc(f.equipment)}" autocomplete="off">
       <div class="combo-list" id="f-equip-list" style="display:none;"></div>
     </div>
+    ` : ''}
     <div class="field">
       <label>Зауваження</label>
       <textarea id="f-comment" placeholder="Опис невідповідності, додаткові примітки…">${esc(f.comment)}</textarea>
@@ -1363,8 +1365,8 @@ function renderReport(){
         <thead><tr>
           <th>Час</th>${isAdmin?'<th>Дільниця</th>':''}<th>Інженер</th><th>ТМ</th><th>Найменування</th><th>Партія</th><th>Термін</th>
           <th>Операція</th><th>Норма</th><th>Заміри</th><th>Н/Б</th><th>Відповідність</th>
-          ${isGp?'<th>Зовн. вигляд</th><th>Дозвіл</th><th>Акт</th>':''}
-          <th>Обладнання</th><th>Зауваження</th>
+          ${isGp?'<th>Зовн. вигляд</th><th>Дозвіл</th><th>Акт</th>':'<th>Обладнання</th>'}
+          <th>Зауваження</th>
         </tr></thead>
         <tbody>
         ${recs.map(r=>`<tr>
@@ -1383,9 +1385,8 @@ function renderReport(){
           ${isGp?`
           <td><span class="badge ${r.appearanceOverall||''}">${appearanceLabel(r.appearanceOverall)}</span></td>
           <td>${r.permit?esc(r.permit.number||'так'):'—'}</td>
-          <td>${r.act?esc(r.act.number||'так'):'—'}</td>
-          `:''}
-          <td>${esc(r.equipment||'—')}</td>
+          <td>${r.act?`<button class="btn btn-sm btn-danger" data-download-act="${esc(r.id)}">⬇️ №${esc(r.act.number||'')}</button>`:'—'}</td>
+          `:`<td>${esc(r.equipment||'—')}</td>`}
           <td>${esc(r.comment||'—')}</td>
         </tr>`).join('')}
         </tbody>
@@ -1452,8 +1453,9 @@ async function exportXLSX(recs, date){
       row['Зовнішній вигляд'] = appearanceLabel(r.appearanceOverall);
       row['Дозвіл на відхилення'] = r.permit ? `№${r.permit.number} від ${fmtDate(r.permit.date)} — ${r.permit.desc||''}` : '';
       row['Акт невідповідності'] = r.act ? `№${r.act.number} від ${fmtDate(r.act.date)}: ${r.act.desc}${r.act.actions?` | Заходи: ${r.act.actions}`:''}` : '';
+    } else {
+      row['Обладнання'] = r.equipment||'';
     }
-    row['Обладнання'] = r.equipment||'';
     row['Зауваження'] = r.comment||'';
     return row;
   });
@@ -1483,7 +1485,7 @@ async function exportPDF(recs, date){
   doc.setFontSize(13);
   doc.text(`Звіт контролю якості — ${isGp?'готова продукція':'проміжний контроль'} — ${fmtDate(date)}`, 14, 14);
   const head = [['Час','Дільниця','Інженер','ТМ','Найменування','Партія','Термін','Операція','Норма','Заміри','Н/Б','Відповідність',
-    ...(isGp?['Зовн. вигляд','Дозвіл','Акт']:[]),'Обладнання','Зауваження']];
+    ...(isGp?['Зовн. вигляд','Дозвіл','Акт']:['Обладнання']),'Зауваження']];
   const body = recs.map(r=>[
     r.time, recordSection(r), r.engineer, r.trademark, r.productName,
     fmtDate(r.batch), fmtDate(r.expiry),
@@ -1496,8 +1498,8 @@ async function exportPDF(recs, date){
       appearanceLabel(r.appearanceOverall),
       r.permit?`№${r.permit.number}`:'—',
       r.act?`№${r.act.number}`:'—',
-    ]:[]),
-    r.equipment||'', r.comment||'',
+    ]:[r.equipment||'']),
+    r.comment||'',
   ]);
   doc.autoTable({
     head, body, startY:20,
@@ -1507,6 +1509,108 @@ async function exportPDF(recs, date){
   });
   const blob = doc.output('blob');
   saveBlob(blob, `Звіт_${isGp?'ГП':'проміжний'}_${date}.pdf`);
+}
+
+// Renders a single non-compliance act (F-QC-8.7/10-05) as its own downloadable
+// PDF document, laid out like the paper form rather than as a table row.
+async function downloadActPDF(record){
+  if(!window.jspdf){
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+  }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({orientation:'portrait', unit:'pt', format:'a4'});
+  doc.addFileToVFS('NotoSans-Regular.ttf', NOTOSANS_FONT_B64);
+  doc.addFont('NotoSans-Regular.ttf', 'NotoSans', 'normal');
+  doc.setFont('NotoSans');
+
+  const a = record.act || {};
+  const marginL = 44, marginR = 551, pageBottom = 780;
+  let y = 50;
+
+  const ensureSpace = (needed)=>{ if(y+needed > pageBottom){ doc.addPage(); y = 50; } };
+  const heading = (text)=>{
+    ensureSpace(24);
+    doc.setFontSize(11.5);
+    doc.setTextColor(18,54,47);
+    doc.text(text, marginL, y);
+    doc.setDrawColor(200,214,209);
+    doc.line(marginL, y+4, marginR, y+4);
+    y += 18;
+    doc.setTextColor(20,20,20);
+  };
+  const field = (label, value)=>{
+    ensureSpace(15);
+    doc.setFontSize(9.5);
+    doc.setFont('NotoSans','normal');
+    doc.text(`${label}:`, marginL, y);
+    const lines = doc.splitTextToSize(String(value||'—'), marginR-marginL-150);
+    doc.text(lines, marginL+150, y);
+    y += Math.max(14, lines.length*12);
+  };
+  const paragraph = (label, value)=>{
+    ensureSpace(15);
+    doc.setFontSize(9.5);
+    doc.text(`${label}:`, marginL, y);
+    y += 13;
+    const lines = doc.splitTextToSize(String(value||'—'), marginR-marginL);
+    ensureSpace(lines.length*12+6);
+    doc.text(lines, marginL, y);
+    y += lines.length*12 + 6;
+  };
+
+  doc.setFontSize(9);
+  doc.setTextColor(120,120,120);
+  doc.text('GMP ISO 22716  ·  QMS ISO 9001', marginL, y); y+=13;
+  doc.setTextColor(20,20,20);
+  doc.setFontSize(14);
+  doc.text('Повідомлення про невідповідність продукції / напівфабрикату', marginL, y, {maxWidth: marginR-marginL}); y += 24;
+
+  doc.setFontSize(9.5);
+  doc.text(`Дата: ${fmtDate(a.date)}`, marginL, y);
+  doc.text(`№ повідомлення: ${a.number||'—'}`, marginL+180, y);
+  y += 20;
+
+  heading('Стадія виявлення невідповідності');
+  field('Стадія', (ACT_DISCOVERY_STAGES.find(s=>s.id===a.discoveryStage)||{}).label);
+
+  heading('Ідентифікація ГП / Напівфабрикату');
+  field('Найменування', `${record.trademark} ${record.productName}`);
+  field('Артикул / Складський код', record.productCode);
+  field('№ Специфікації / форми виробництва', a.specNumber);
+  field('Дата виготовлення напівфабрикату', fmtDate(a.semiDate));
+  field('№ Партії ГП', fmtDate(record.batch));
+  field('Загальна кількість партії', a.totalQty ? `${a.totalQty} ${a.totalQtyUnit}` : '—');
+  field('Кількість невідповідної продукції', a.defectQty ? `${a.defectQty} ${a.defectQtyUnit}` : '—');
+
+  heading('Вид невідповідності');
+  const ncLabels = labelsFor(ACT_NONCOMPLIANCE_TYPES, a.nonComplianceTypes);
+  field('Вид', ncLabels.join('; ') || '—');
+  if((a.nonComplianceTypes||[]).includes('other')) field('Інше (уточнення)', a.nonComplianceOther);
+
+  paragraph('Опис дефекту / норма-факт', a.desc);
+  field('Підготував — посада / ПІБ', `Інженер з якості / ${record.engineer}`);
+
+  heading('Причина невідповідності');
+  const causeLabels = labelsFor(ACT_CAUSE_CATEGORIES, a.causeCategories);
+  field('Категорія', causeLabels.join('; ') || '—');
+  paragraph('Детальний опис причини', a.causeDetail);
+
+  field('Відповідальний за висновок', `${a.responsiblePosition||''} — ${a.responsibleName||'—'}`);
+
+  heading('Статус');
+  const statusLabels = labelsFor(ACT_STATUS_OPTIONS, a.statusOptions);
+  field('Статус', statusLabels.join('; ') || '—');
+  if(a.actions) paragraph('Додаткові примітки', a.actions);
+
+  field('Статус присвоїв', `Інженер з якості — ${a.assignedBy||record.engineer}, дата ${fmtDate(a.date)}`);
+
+  ensureSpace(20);
+  doc.setFontSize(8);
+  doc.setTextColor(140,140,140);
+  doc.text('F-QC-8.7/10-05', marginL, pageBottom+12);
+
+  const blob = doc.output('blob');
+  saveBlob(blob, `Акт_${(a.number||'без_номера').replace(/[\/\\]/g,'-')}_${record.date}.pdf`);
 }
 
 function loadScript(src){
@@ -1694,19 +1798,21 @@ function attachFormEvents(){
     prodInput.onblur = ()=>setTimeout(()=>hideCombo('f-prod-list'),150);
   }
 
-  // Equipment combo
+  // Equipment combo (only rendered for проміжний контроль)
   const eqInput = document.getElementById('f-equip-input');
-  const showEqList = ()=>{
-    const q = eqInput.value.trim().toLowerCase();
-    const opts = (state.catalog.equipment||[]).filter(e=>e.toLowerCase().includes(q));
-    renderComboList('f-equip-list', opts.map(e=>({value:e,label:e})), q?'Немає збігів — можна ввести нову назву':'Почніть вводити…');
-    document.querySelectorAll('#f-equip-list .combo-item').forEach(it=>{
-      it.onclick = ()=>{ f.equipment=it.dataset.val; eqInput.value=it.dataset.val; hideCombo('f-equip-list'); };
-    });
-  };
-  eqInput.oninput = ()=>{ f.equipment=eqInput.value; showEqList(); };
-  eqInput.onfocus = showEqList;
-  eqInput.onblur = ()=>setTimeout(()=>hideCombo('f-equip-list'),150);
+  if(eqInput){
+    const showEqList = ()=>{
+      const q = eqInput.value.trim().toLowerCase();
+      const opts = (state.catalog.equipment||[]).filter(e=>e.toLowerCase().includes(q));
+      renderComboList('f-equip-list', opts.map(e=>({value:e,label:e})), q?'Немає збігів — можна ввести нову назву':'Почніть вводити…');
+      document.querySelectorAll('#f-equip-list .combo-item').forEach(it=>{
+        it.onclick = ()=>{ f.equipment=it.dataset.val; eqInput.value=it.dataset.val; hideCombo('f-equip-list'); };
+      });
+    };
+    eqInput.oninput = ()=>{ f.equipment=eqInput.value; showEqList(); };
+    eqInput.onfocus = showEqList;
+    eqInput.onblur = ()=>setTimeout(()=>hideCombo('f-equip-list'),150);
+  }
 
   // Operations chips
   document.querySelectorAll('[data-op]').forEach(chip=>{
@@ -1920,6 +2026,17 @@ function attachReportEvents(){
   if(secSel) secSel.onchange = e=>{ state.reportSection=e.target.value; state.reportEngineer='all'; render(); };
   document.querySelectorAll('#rep-type-toggle [data-reptype]').forEach(b=>{
     b.onclick = ()=>{ state.reportControlType=b.dataset.reptype; state.reportEngineer='all'; render(); };
+  });
+
+  document.querySelectorAll('[data-download-act]').forEach(b=>{
+    b.onclick = async ()=>{
+      const rec = state.records.find(r=>r.id===b.dataset.downloadAct);
+      if(!rec){ showToast('Запис не знайдено','⚠️'); return; }
+      b.disabled = true; const orig = b.textContent; b.textContent = 'Формування…';
+      try{ await downloadActPDF(rec); showToast('Акт завантажено','✅'); }
+      catch(e){ console.error(e); showToast('Помилка: '+(e && e.message ? e.message : e), '⚠️', 6000); }
+      b.disabled = false; b.textContent = orig;
+    };
   });
 
   const getRecs = ()=>{
