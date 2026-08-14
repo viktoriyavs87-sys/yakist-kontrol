@@ -920,6 +920,7 @@ function newFormState(controlType){
     actResponsibleName:'', actResponsiblePosition:'Начальник виробництва',
     actStatusOptions:[],
     actActions:'',
+    actPhotos:[], // [{data: 'data:image/jpeg;base64,...', w, h}]
   };
 }
 
@@ -1256,6 +1257,18 @@ function renderAppearanceSection(f){
       <textarea id="f-act-actions" placeholder="Будь-які додаткові коментарі…">${esc(f.actActions)}</textarea>
     </div>
 
+    <div class="field">
+      <label>Фото невідповідності (необов'язково, до 4 шт.)</label>
+      <input type="file" id="f-act-photo-input" accept="image/*" multiple ${f.actPhotos.length>=4?'disabled':''}>
+      ${f.actPhotos.length ? `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;">
+        ${f.actPhotos.map((p,i)=>`<div style="position:relative;">
+          <img src="${p.data}" style="width:76px;height:76px;object-fit:cover;border-radius:8px;border:1.5px solid var(--line);">
+          <button type="button" class="rm" data-act-photo-rm="${i}" style="position:absolute;top:-6px;right:-6px;width:22px;height:22px;font-size:13px;">×</button>
+        </div>`).join('')}
+      </div>` : ''}
+      <div class="hint">Кожне фото стискається автоматично й додається окремою сторінкою в PDF-акті.</div>
+    </div>
+
     <div class="hint">Статус присвоїв: ${esc(state.session.name)} (інженер з якості), дата ${fmtDate(f.actDate)} — заповнюється автоматично.</div>
   </div>
   ` : ''}
@@ -1272,6 +1285,30 @@ function renderComboList(id, items, emptyText){
   el.style.display='block';
 }
 function hideCombo(id){ const el=document.getElementById(id); if(el){el.style.display='none';} }
+
+// Resizes and compresses an uploaded photo to a small JPEG data URL so a few
+// act photos comfortably fit within Firestore's 1MB document size limit.
+function resizeImageFile(file, maxW, quality){
+  maxW = maxW||900; quality = quality||0.55;
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onload = e=>{
+      const img = new Image();
+      img.onload = ()=>{
+        const scale = Math.min(1, maxW/img.width);
+        const w = Math.round(img.width*scale), h = Math.round(img.height*scale);
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve({data: canvas.toDataURL('image/jpeg', quality), w, h});
+      };
+      img.onerror = ()=>reject(new Error('Не вдалося прочитати зображення'));
+      img.src = e.target.result;
+    };
+    reader.onerror = ()=>reject(new Error('Не вдалося прочитати файл'));
+    reader.readAsDataURL(file);
+  });
+}
 
 // DSTU OIML R 87 — allowable negative deviation from nominal quantity in a packaging unit.
 // Ranges are defined in grams/millilitres; kg/l are converted to that base before lookup.
@@ -1561,8 +1598,8 @@ async function exportPDF(recs, date){
 }
 
 // Renders a single non-compliance act (F-QC-8.7/10-05) as its own downloadable
-// PDF document, laid out with real bordered tables and checkbox grids —
-// matching the structure of the official paper form.
+// PDF document, laid out with real bordered tables and vector checkbox squares —
+// matching the structure of the official paper form as closely as possible.
 async function downloadActPDF(record){
   if(!window.jspdf){
     await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
@@ -1580,29 +1617,92 @@ async function downloadActPDF(record){
   const marginL = 40, marginR = 555;
   const fullW = marginR - marginL;
   const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
   let y = 40;
+  let sectionNum = 0;
+
+  // Draws a real vector checkbox square (not a font glyph) so it never depends
+  // on which symbols happen to be in the embedded font.
+  const drawCheckbox = (cx, cy, checked)=>{
+    const s = 7.5;
+    doc.setDrawColor(60,60,60);
+    doc.setLineWidth(0.6);
+    doc.rect(cx-s/2, cy-s/2, s, s);
+    if(checked){
+      doc.setDrawColor(178,52,42);
+      doc.setLineWidth(1.1);
+      doc.line(cx-s/2+1.2, cy-s/2+1.2, cx+s/2-1.2, cy+s/2-1.2);
+      doc.line(cx-s/2+1.2, cy+s/2-1.2, cx+s/2-1.2, cy-s/2+1.2);
+      doc.setLineWidth(0.6);
+    }
+  };
 
   const sectionTitle = (text)=>{
-    doc.setFontSize(10.5);
+    sectionNum++;
+    doc.setFontSize(10);
     doc.setTextColor(255,255,255);
     doc.setFillColor(18,54,47);
-    doc.rect(marginL, y, fullW, 16, 'F');
-    doc.text(text, marginL+6, y+11.5);
-    y += 16;
+    doc.rect(marginL, y, fullW, 17, 'F');
+    doc.text(`${sectionNum}. ${text}`, marginL+fullW/2, y+11.8, {align:'center'});
+    y += 17;
     doc.setTextColor(20,20,20);
   };
-  const checkboxRow = (items, selectedIds)=>{
-    const head = [items.map(it=>it.label)];
-    const body = [items.map(it=>selectedIds.includes(it.id) ? 'X' : '')];
+  const subLabel = (text)=>{
+    doc.setFontSize(8.5);
+    doc.setFont('NotoSans','normal');
+    doc.setTextColor(60,60,60);
+    doc.text(text, marginL+4, y+11);
+    y += 15;
+    doc.setTextColor(20,20,20);
+  };
+
+  // Single-row checkbox grid — one column per item, label above, checkbox below.
+  // Used for Стадія / Причина / Статус (matches the original's wide-row style).
+  const checkboxGridRow = (items, selectedIds)=>{
     doc.autoTable({
-      head, body, startY:y, margin:{left:marginL, right:pageW-marginR},
-      styles:{font:'NotoSans', fontSize:6.3, cellPadding:3, lineColor:[190,190,190], lineWidth:0.5, valign:'top'},
+      head:[items.map(it=>it.label)],
+      body:[items.map(()=>'')],
+      startY:y, margin:{left:marginL, right:pageW-marginR},
+      styles:{font:'NotoSans', fontSize:6.2, cellPadding:3, lineColor:[190,190,190], lineWidth:0.5, valign:'top'},
       headStyles:{fillColor:[240,242,240], textColor:[20,20,20], fontStyle:'normal'},
-      bodyStyles:{halign:'center', fontSize:10, minCellHeight:14, textColor:[178,52,42]},
+      bodyStyles:{minCellHeight:16},
       theme:'grid',
+      didDrawCell: (data)=>{
+        if(data.section==='body'){
+          const item = items[data.column.index];
+          const checked = item && selectedIds.includes(item.id);
+          drawCheckbox(data.cell.x+data.cell.width/2, data.cell.y+data.cell.height/2, checked);
+        }
+      },
     });
     y = doc.lastAutoTable.finalY;
   };
+
+  // Two-column checklist — label with an inline checkbox at the end of each row,
+  // items split into a left and right column. Matches "Вид невідповідності".
+  const checklistTwoCol = (items, selectedIds)=>{
+    const half = Math.ceil(items.length/2);
+    const left = items.slice(0, half), right = items.slice(half);
+    const rows = Math.max(left.length, right.length);
+    const body = [];
+    for(let i=0;i<rows;i++) body.push([left[i]?left[i].label:'', '', right[i]?right[i].label:'', '']);
+    doc.autoTable({
+      body, startY:y, margin:{left:marginL, right:pageW-marginR},
+      styles:{font:'NotoSans', fontSize:8, cellPadding:4, lineColor:[190,190,190], lineWidth:0.5, valign:'middle'},
+      columnStyles:{0:{cellWidth:220},1:{cellWidth:35,halign:'center'},2:{cellWidth:'auto'},3:{cellWidth:35,halign:'center'}},
+      theme:'grid',
+      didDrawCell: (data)=>{
+        if(data.column.index===1 || data.column.index===3){
+          const arr = data.column.index===1 ? left : right;
+          const item = arr[data.row.index];
+          if(!item) return;
+          drawCheckbox(data.cell.x+data.cell.width/2, data.cell.y+data.cell.height/2, selectedIds.includes(item.id));
+        }
+      },
+    });
+    y = doc.lastAutoTable.finalY;
+  };
+
   const infoTable = (rows)=>{
     doc.autoTable({
       body: rows.map(([label,value])=>[label, value||'—']),
@@ -1614,7 +1714,7 @@ async function downloadActPDF(record){
     y = doc.lastAutoTable.finalY;
   };
   const textBox = (label, value)=>{
-    sectionTitle(label);
+    subLabel(label);
     doc.autoTable({
       body: [[value || '—']],
       startY:y, margin:{left:marginL, right:pageW-marginR},
@@ -1623,11 +1723,11 @@ async function downloadActPDF(record){
     });
     y = doc.lastAutoTable.finalY;
   };
-  const signRow = (label, position, name)=>{
+  const signRow = (label, position, name, extraHead, extraVal)=>{
     sectionTitle(label);
     doc.autoTable({
-      head:[['Посада','ПІБ','Підпис']],
-      body:[[position||'—', name||'—', '']],
+      head:[extraHead ? ['Посада','ПІБ','Підпис',extraHead] : ['Посада','ПІБ','Підпис']],
+      body:[extraHead ? [position||'—', name||'—', '', extraVal] : [position||'—', name||'—', '']],
       startY:y, margin:{left:marginL, right:pageW-marginR},
       styles:{font:'NotoSans', fontSize:8.5, cellPadding:5, lineColor:[190,190,190], lineWidth:0.5},
       headStyles:{fillColor:[240,242,240], textColor:[20,20,20], fontStyle:'normal'},
@@ -1636,22 +1736,34 @@ async function downloadActPDF(record){
     y = doc.lastAutoTable.finalY;
   };
 
-  // Header — logo top-left, title alongside, per company requirement
-  try{ doc.addImage(COMPANY_LOGO_B64, 'PNG', marginL, y, 55, 42); }catch(e){ console.warn('logo embed failed', e); }
-  const hX = marginL + 68;
-  doc.setFontSize(8.5);
-  doc.setTextColor(120,120,120);
-  doc.text('GMP ISO 22716  ·  QMS ISO 9001', hX, y+12);
-  doc.setTextColor(20,20,20);
-  doc.setFontSize(12.5);
-  const titleLines = doc.splitTextToSize('Повідомлення про невідповідність продукції / напівфабрикату', marginR-hX);
-  doc.text(titleLines, hX, y+27);
-  doc.setFontSize(9);
-  doc.text(`Дата: ${fmtDate(a.date)}     №  повідомлення: ${a.number||'—'}`, hX, y+27+titleLines.length*13+8);
-  y += 52;
+  // Header — bordered box: logo + title on the left, Дата/№/Сторінка meta table on the right
+  doc.autoTable({
+    body: [
+      [{content:'', rowSpan:3}, 'Дата:', fmtDate(a.date)],
+      ['№ повідомлення:', a.number||'—'],
+      ['Сторінка / Сторінок:', 'Сторінка 1 з 1'],
+    ],
+    startY:y, margin:{left:marginL, right:pageW-marginR},
+    styles:{font:'NotoSans', fontSize:9, cellPadding:5, lineColor:[190,190,190], lineWidth:0.5, valign:'middle'},
+    columnStyles:{0:{cellWidth:335}, 1:{cellWidth:100, textColor:[90,90,90]}, 2:{cellWidth:'auto'}},
+    theme:'grid',
+    didDrawCell: (data)=>{
+      if(data.column.index===0 && data.row.index===0){
+        try{ doc.addImage(COMPANY_LOGO_B64, 'PNG', data.cell.x+6, data.cell.y+8, 46, 35); }catch(e){ console.warn('logo embed failed', e); }
+        doc.setFontSize(8);
+        doc.setTextColor(120,120,120);
+        doc.text('GMP ISO 22716 · QMS ISO 9001', data.cell.x+60, data.cell.y+16);
+        doc.setTextColor(20,20,20);
+        doc.setFontSize(10.5);
+        const tLines = doc.splitTextToSize('Повідомлення про невідповідність продукції / напівфабрикату', data.cell.width-66);
+        doc.text(tLines, data.cell.x+60, data.cell.y+29);
+      }
+    },
+  });
+  y = doc.lastAutoTable.finalY;
 
   sectionTitle('Стадія виявлення невідповідності');
-  checkboxRow(ACT_DISCOVERY_STAGES, a.discoveryStage?[a.discoveryStage]:[]);
+  checkboxGridRow(ACT_DISCOVERY_STAGES, a.discoveryStage?[a.discoveryStage]:[]);
 
   sectionTitle('Ідентифікація ГП / Напівфабрикату');
   infoTable([
@@ -1665,42 +1777,48 @@ async function downloadActPDF(record){
   ]);
 
   sectionTitle('Вид невідповідності');
-  checkboxRow(ACT_NONCOMPLIANCE_TYPES.slice(0,6), a.nonComplianceTypes||[]);
-  checkboxRow(ACT_NONCOMPLIANCE_TYPES.slice(6,12), a.nonComplianceTypes||[]);
+  checklistTwoCol(ACT_NONCOMPLIANCE_TYPES, a.nonComplianceTypes||[]);
   if((a.nonComplianceTypes||[]).includes('other')){
     infoTable([['Інше (уточнення)', a.nonComplianceOther]]);
   }
+  textBox('Вид невідповідності (Опис дефекту / норма-факт)', a.desc);
 
-  textBox('Опис дефекту / норма-факт', a.desc);
   signRow('Підготував', 'Інженер з якості', record.engineer);
 
   sectionTitle('Причина невідповідності');
-  checkboxRow(ACT_CAUSE_CATEGORIES, a.causeCategories||[]);
-
+  checkboxGridRow(ACT_CAUSE_CATEGORIES, a.causeCategories||[]);
   textBox('Детальний опис причини невідповідності', a.causeDetail);
+
   signRow('Відповідальний за висновок', a.responsiblePosition||'Начальник виробництва', a.responsibleName);
 
   sectionTitle('Статус');
-  checkboxRow(ACT_STATUS_OPTIONS, a.statusOptions||[]);
+  checkboxGridRow(ACT_STATUS_OPTIONS, a.statusOptions||[]);
 
-  if(a.actions){
-    textBox('Додаткові примітки', a.actions);
-  }
+  if(a.actions) textBox('Додаткові примітки', a.actions);
 
-  sectionTitle('Статус присвоїв');
-  doc.autoTable({
-    head:[['Посада','ПІБ','Підпис','Дата']],
-    body:[['Інженер з якості', a.assignedBy||record.engineer, '', fmtDate(a.date)]],
-    startY:y, margin:{left:marginL, right:pageW-marginR},
-    styles:{font:'NotoSans', fontSize:8.5, cellPadding:5, lineColor:[190,190,190], lineWidth:0.5},
-    headStyles:{fillColor:[240,242,240], textColor:[20,20,20], fontStyle:'normal'},
-    theme:'grid',
-  });
-  y = doc.lastAutoTable.finalY + 14;
+  signRow('Статус присвоїв', 'Інженер з якості', a.assignedBy||record.engineer, 'Дата:', fmtDate(a.date));
 
+  y += 14;
   doc.setFontSize(7.5);
   doc.setTextColor(140,140,140);
   doc.text('F-QC-8.7/10-05', marginL, y);
+
+  // Photo evidence — each photo on its own page, scaled to fit within margins
+  if(a.photos && a.photos.length){
+    a.photos.forEach(p=>{
+      doc.addPage();
+      doc.setFont('NotoSans');
+      doc.setFontSize(10);
+      doc.setTextColor(20,20,20);
+      doc.text(`Фото невідповідності — № ${a.number||''}`, marginL, 36);
+      const maxW = fullW, maxH = pageH - 90;
+      let w = p.w, h = p.h;
+      const scale = Math.min(maxW/w, maxH/h, 1);
+      w *= scale; h *= scale;
+      try{ doc.addImage(p.data, 'JPEG', marginL + (maxW-w)/2, 56, w, h); }
+      catch(e){ console.warn('photo embed failed', e); }
+    });
+  }
 
   const blob = doc.output('blob');
   saveBlob(blob, `Акт_${(a.number||'без_номера').replace(/[\/\\]/g,'-')}_${record.date}.pdf`);
@@ -2051,6 +2169,23 @@ function attachFormEvents(){
     });
     const actActions = document.getElementById('f-act-actions');
     if(actActions) actActions.oninput = e=>{ f.actActions=e.target.value; };
+
+    const photoInput = document.getElementById('f-act-photo-input');
+    if(photoInput) photoInput.onchange = async ()=>{
+      const files = Array.from(photoInput.files || []).slice(0, 4 - f.actPhotos.length);
+      if(files.length===0) return;
+      showToast('Обробка фото…', '📷', 2000);
+      for(const file of files){
+        try{
+          const resized = await resizeImageFile(file);
+          f.actPhotos.push(resized);
+        }catch(e){ console.error(e); showToast('Не вдалося обробити фото: '+file.name, '⚠️'); }
+      }
+      render();
+    };
+    document.querySelectorAll('[data-act-photo-rm]').forEach(b=>{
+      b.onclick = ()=>{ f.actPhotos.splice(+b.dataset.actPhotoRm, 1); render(); };
+    });
   }
 
   // Tare weight (both control types, only meaningful in brutto mode)
@@ -2108,6 +2243,7 @@ function attachFormEvents(){
         statusOptions:f.actStatusOptions.slice(),
         actions:f.actActions,
         assignedBy: state.session.name,
+        photos: f.actPhotos.slice(),
       } : null;
     }
     // Saved as its own Firestore document — the live listener will add it to
