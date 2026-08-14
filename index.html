@@ -626,6 +626,7 @@ function renderScreen(){
     case 'new': return renderForm();
     case 'report': return renderReport();
     case 'admin': return renderAdmin();
+    case 'actSaved': return renderActSaved();
     default: return renderHome();
   }
 }
@@ -769,6 +770,24 @@ function attachLoginEvents(){
 /* =========================================================
    HOME
    ========================================================= */
+/* ---- confirmation screen shown right after saving a record with an act ---- */
+function renderActSaved(){
+  const r = state.lastActRecord;
+  if(!r) return renderHome();
+  return `
+  <div class="card" style="text-align:center;border-color:var(--red);">
+    <div style="font-size:36px;margin-bottom:8px;">⛔</div>
+    <h2 style="color:var(--red);">Запис збережено з актом невідповідності</h2>
+    <p style="color:var(--ink-soft);font-size:13.5px;margin:8px 0 18px;">
+      ${esc(r.trademark)} ${esc(r.productName)} · партія ${esc(fmtDate(r.batch))}<br>
+      № повідомлення: ${esc(r.act.number||'—')}
+    </p>
+    <button class="btn btn-primary btn-block" id="act-download-now" style="padding:14px;font-size:15px;">⬇️ Завантажити акт (PDF)</button>
+    <button class="btn btn-secondary btn-block" id="act-done" style="margin-top:10px;">Готово, на головну</button>
+  </div>
+  `;
+}
+
 function renderHome(){
   const today = todayISO();
   const mine = state.records.filter(r=>r.date===today && r.engineer===state.session.name);
@@ -1748,6 +1767,17 @@ function attachScreenEvents(){
   if(state.screen==='new') attachFormEvents();
   if(state.screen==='report') attachReportEvents();
   if(state.screen==='admin') attachAdminEvents();
+  if(state.screen==='actSaved'){
+    const dlBtn = document.getElementById('act-download-now');
+    if(dlBtn) dlBtn.onclick = async ()=>{
+      dlBtn.disabled = true; const orig = dlBtn.textContent; dlBtn.textContent = 'Формування…';
+      try{ await downloadActPDF(state.lastActRecord); showToast('Акт завантажено','✅'); }
+      catch(e){ console.error(e); showToast('Помилка: '+(e && e.message ? e.message : e), '⚠️', 6000); }
+      dlBtn.disabled = false; dlBtn.textContent = orig;
+    };
+    const doneBtn = document.getElementById('act-done');
+    if(doneBtn) doneBtn.onclick = ()=>{ state.lastActRecord=null; state.screen='home'; render(); };
+  }
 }
 
 function attachFormEvents(){
@@ -2011,7 +2041,12 @@ function attachFormEvents(){
     if(ok){
       showToast('Запис збережено','✅');
       state.form = newFormState(f.controlType);
-      state.screen = 'home';
+      if(record.act){
+        state.lastActRecord = record;
+        state.screen = 'actSaved';
+      } else {
+        state.screen = 'home';
+      }
       render();
     } else {
       saveBtn.disabled = false; saveBtn.textContent = 'Зберегти запис';
