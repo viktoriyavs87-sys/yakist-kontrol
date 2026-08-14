@@ -1553,7 +1553,7 @@ async function exportPDF(recs, date){
   doc.autoTable({
     head, body, startY:20,
     styles:{fontSize:7, font:'NotoSans'},
-    headStyles:{fillColor:[31,92,82], font:'NotoSans'},
+    headStyles:{fillColor:[31,92,82], font:'NotoSans', fontStyle:'normal'},
     bodyStyles:{font:'NotoSans'},
   });
   const blob = doc.output('blob');
@@ -1561,10 +1561,14 @@ async function exportPDF(recs, date){
 }
 
 // Renders a single non-compliance act (F-QC-8.7/10-05) as its own downloadable
-// PDF document, laid out like the paper form rather than as a table row.
+// PDF document, laid out with real bordered tables and checkbox grids —
+// matching the structure of the official paper form.
 async function downloadActPDF(record){
   if(!window.jspdf){
     await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+  }
+  if(!(window.jspdf && window.jspdf.jsPDF && window.jspdf.jsPDF.API && window.jspdf.jsPDF.API.autoTable)){
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js');
   }
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({orientation:'portrait', unit:'pt', format:'a4'});
@@ -1573,90 +1577,130 @@ async function downloadActPDF(record){
   doc.setFont('NotoSans');
 
   const a = record.act || {};
-  const marginL = 44, marginR = 551, pageBottom = 780;
-  let y = 50;
+  const marginL = 40, marginR = 555;
+  const fullW = marginR - marginL;
+  const pageW = doc.internal.pageSize.getWidth();
+  let y = 40;
 
-  const ensureSpace = (needed)=>{ if(y+needed > pageBottom){ doc.addPage(); doc.setFont('NotoSans'); y = 50; } };
-  const heading = (text)=>{
-    ensureSpace(26);
-    doc.setFontSize(11.5);
-    doc.setTextColor(18,54,47);
-    doc.text(text, marginL, y);
-    doc.setDrawColor(200,214,209);
-    doc.line(marginL, y+5, marginR, y+5);
-    y += 20;
+  const sectionTitle = (text)=>{
+    doc.setFontSize(10.5);
+    doc.setTextColor(255,255,255);
+    doc.setFillColor(18,54,47);
+    doc.rect(marginL, y, fullW, 16, 'F');
+    doc.text(text, marginL+6, y+11.5);
+    y += 16;
     doc.setTextColor(20,20,20);
   };
-  // Label always sits on its own line, value wraps below it on the next —
-  // this avoids any overlap no matter how long the label or value text is.
-  const field = (label, value)=>{
-    ensureSpace(28);
-    doc.setFontSize(8.5);
-    doc.setTextColor(100,110,107);
-    doc.text(String(label), marginL, y);
-    y += 12;
-    doc.setFontSize(10);
-    doc.setTextColor(20,20,20);
-    const lines = doc.splitTextToSize(String(value||'—'), marginR-marginL);
-    ensureSpace(lines.length*13);
-    doc.text(lines, marginL, y);
-    y += lines.length*13 + 9;
+  const checkboxRow = (items, selectedIds)=>{
+    const head = [items.map(it=>it.label)];
+    const body = [items.map(it=>selectedIds.includes(it.id) ? 'X' : '')];
+    doc.autoTable({
+      head, body, startY:y, margin:{left:marginL, right:pageW-marginR},
+      styles:{font:'NotoSans', fontSize:6.3, cellPadding:3, lineColor:[190,190,190], lineWidth:0.5, valign:'top'},
+      headStyles:{fillColor:[240,242,240], textColor:[20,20,20], fontStyle:'normal'},
+      bodyStyles:{halign:'center', fontSize:10, minCellHeight:14, textColor:[178,52,42]},
+      theme:'grid',
+    });
+    y = doc.lastAutoTable.finalY;
+  };
+  const infoTable = (rows)=>{
+    doc.autoTable({
+      body: rows.map(([label,value])=>[label, value||'—']),
+      startY:y, margin:{left:marginL, right:pageW-marginR},
+      styles:{font:'NotoSans', fontSize:8.5, cellPadding:5, lineColor:[190,190,190], lineWidth:0.5, valign:'top'},
+      columnStyles:{0:{cellWidth:170, fontStyle:'normal', textColor:[100,110,107]}, 1:{fontStyle:'normal'}},
+      theme:'grid',
+    });
+    y = doc.lastAutoTable.finalY;
+  };
+  const textBox = (label, value)=>{
+    sectionTitle(label);
+    doc.autoTable({
+      body: [[value || '—']],
+      startY:y, margin:{left:marginL, right:pageW-marginR},
+      styles:{font:'NotoSans', fontSize:9, cellPadding:6, lineColor:[190,190,190], lineWidth:0.5},
+      theme:'grid',
+    });
+    y = doc.lastAutoTable.finalY;
+  };
+  const signRow = (label, position, name)=>{
+    sectionTitle(label);
+    doc.autoTable({
+      head:[['Посада','ПІБ','Підпис']],
+      body:[[position||'—', name||'—', '']],
+      startY:y, margin:{left:marginL, right:pageW-marginR},
+      styles:{font:'NotoSans', fontSize:8.5, cellPadding:5, lineColor:[190,190,190], lineWidth:0.5},
+      headStyles:{fillColor:[240,242,240], textColor:[20,20,20], fontStyle:'normal'},
+      theme:'grid',
+    });
+    y = doc.lastAutoTable.finalY;
   };
 
-  // Company logo — top-left corner, required on every act
-  try{
-    doc.addImage(COMPANY_LOGO_B64, 'PNG', marginL, 28, 55, 42);
-  }catch(e){ console.warn('logo embed failed', e); }
-  const headerTextX = marginL + 70;
-
-  doc.setFontSize(9);
+  // Header — logo top-left, title alongside, per company requirement
+  try{ doc.addImage(COMPANY_LOGO_B64, 'PNG', marginL, y, 55, 42); }catch(e){ console.warn('logo embed failed', e); }
+  const hX = marginL + 68;
+  doc.setFontSize(8.5);
   doc.setTextColor(120,120,120);
-  doc.text('GMP ISO 22716  ·  QMS ISO 9001', headerTextX, y); y+=15;
+  doc.text('GMP ISO 22716  ·  QMS ISO 9001', hX, y+12);
   doc.setTextColor(20,20,20);
-  doc.setFontSize(13.5);
-  const titleLines = doc.splitTextToSize('Повідомлення про невідповідність продукції / напівфабрикату', marginR-headerTextX);
-  doc.text(titleLines, headerTextX, y); y += titleLines.length*16 + 6;
+  doc.setFontSize(12.5);
+  const titleLines = doc.splitTextToSize('Повідомлення про невідповідність продукції / напівфабрикату', marginR-hX);
+  doc.text(titleLines, hX, y+27);
+  doc.setFontSize(9);
+  doc.text(`Дата: ${fmtDate(a.date)}     №  повідомлення: ${a.number||'—'}`, hX, y+27+titleLines.length*13+8);
+  y += 52;
 
-  doc.setFontSize(9.5);
-  doc.text(`Дата: ${fmtDate(a.date)}`, headerTextX, y);
-  doc.text(`№ повідомлення: ${a.number||'—'}`, headerTextX+180, y);
-  y += 22;
+  sectionTitle('Стадія виявлення невідповідності');
+  checkboxRow(ACT_DISCOVERY_STAGES, a.discoveryStage?[a.discoveryStage]:[]);
 
-  heading('Стадія виявлення невідповідності');
-  field('Стадія', (ACT_DISCOVERY_STAGES.find(s=>s.id===a.discoveryStage)||{}).label);
+  sectionTitle('Ідентифікація ГП / Напівфабрикату');
+  infoTable([
+    ['Найменування ГП/Напівфабрикату', `${record.trademark} ${record.productName}`],
+    ['Артикул / Складський код', record.productCode],
+    ['№ Специфікації / № форми виробництва', a.specNumber],
+    ['Дата виготовлення напівфабрикату', fmtDate(a.semiDate)],
+    ['№ Партії ГП', fmtDate(record.batch)],
+    ['Загальна кількість партії', a.totalQty ? `${a.totalQty} ${a.totalQtyUnit}` : '—'],
+    ['Кількість невідповідної продукції', a.defectQty ? `${a.defectQty} ${a.defectQtyUnit}` : '—'],
+  ]);
 
-  heading('Ідентифікація ГП / Напівфабрикату');
-  field('Найменування', `${record.trademark} ${record.productName}`);
-  field('Артикул / Складський код', record.productCode);
-  field('№ Специфікації / форми виробництва', a.specNumber);
-  field('Дата виготовлення напівфабрикату', fmtDate(a.semiDate));
-  field('№ Партії ГП', fmtDate(record.batch));
-  field('Загальна кількість партії', a.totalQty ? `${a.totalQty} ${a.totalQtyUnit}` : '—');
-  field('Кількість невідповідної продукції', a.defectQty ? `${a.defectQty} ${a.defectQtyUnit}` : '—');
+  sectionTitle('Вид невідповідності');
+  checkboxRow(ACT_NONCOMPLIANCE_TYPES.slice(0,6), a.nonComplianceTypes||[]);
+  checkboxRow(ACT_NONCOMPLIANCE_TYPES.slice(6,12), a.nonComplianceTypes||[]);
+  if((a.nonComplianceTypes||[]).includes('other')){
+    infoTable([['Інше (уточнення)', a.nonComplianceOther]]);
+  }
 
-  heading('Вид невідповідності');
-  const ncLabels = labelsFor(ACT_NONCOMPLIANCE_TYPES, a.nonComplianceTypes);
-  field('Вид', ncLabels.join('; ') || '—');
-  if((a.nonComplianceTypes||[]).includes('other')) field('Інше (уточнення)', a.nonComplianceOther);
-  field('Опис дефекту / норма-факт', a.desc);
-  field('Підготував — посада / ПІБ', `Інженер з якості / ${record.engineer}`);
+  textBox('Опис дефекту / норма-факт', a.desc);
+  signRow('Підготував', 'Інженер з якості', record.engineer);
 
-  heading('Причина невідповідності');
-  const causeLabels = labelsFor(ACT_CAUSE_CATEGORIES, a.causeCategories);
-  field('Категорія', causeLabels.join('; ') || '—');
-  field('Детальний опис причини', a.causeDetail);
-  field('Відповідальний за висновок', `${a.responsiblePosition||''} — ${a.responsibleName||'—'}`);
+  sectionTitle('Причина невідповідності');
+  checkboxRow(ACT_CAUSE_CATEGORIES, a.causeCategories||[]);
 
-  heading('Статус');
-  const statusLabels = labelsFor(ACT_STATUS_OPTIONS, a.statusOptions);
-  field('Статус', statusLabels.join('; ') || '—');
-  if(a.actions) field('Додаткові примітки', a.actions);
-  field('Статус присвоїв', `Інженер з якості — ${a.assignedBy||record.engineer}, дата ${fmtDate(a.date)}`);
+  textBox('Детальний опис причини невідповідності', a.causeDetail);
+  signRow('Відповідальний за висновок', a.responsiblePosition||'Начальник виробництва', a.responsibleName);
 
-  ensureSpace(20);
-  doc.setFontSize(8);
+  sectionTitle('Статус');
+  checkboxRow(ACT_STATUS_OPTIONS, a.statusOptions||[]);
+
+  if(a.actions){
+    textBox('Додаткові примітки', a.actions);
+  }
+
+  sectionTitle('Статус присвоїв');
+  doc.autoTable({
+    head:[['Посада','ПІБ','Підпис','Дата']],
+    body:[['Інженер з якості', a.assignedBy||record.engineer, '', fmtDate(a.date)]],
+    startY:y, margin:{left:marginL, right:pageW-marginR},
+    styles:{font:'NotoSans', fontSize:8.5, cellPadding:5, lineColor:[190,190,190], lineWidth:0.5},
+    headStyles:{fillColor:[240,242,240], textColor:[20,20,20], fontStyle:'normal'},
+    theme:'grid',
+  });
+  y = doc.lastAutoTable.finalY + 14;
+
+  doc.setFontSize(7.5);
   doc.setTextColor(140,140,140);
-  doc.text('F-QC-8.7/10-05', marginL, pageBottom+12);
+  doc.text('F-QC-8.7/10-05', marginL, y);
 
   const blob = doc.output('blob');
   saveBlob(blob, `Акт_${(a.number||'без_номера').replace(/[\/\\]/g,'-')}_${record.date}.pdf`);
