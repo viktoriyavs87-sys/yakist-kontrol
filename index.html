@@ -1997,9 +1997,9 @@ async function downloadActDOCX(record){
     rows:[
       new TableRow({children:[
         new TableCell({rowSpan:3, width:{size:5300,type:WidthType.DXA}, borders:ALL_BORDERS, margins:CELL_MARGIN, verticalAlign:VerticalAlign.CENTER, children:[
-          new Paragraph({children:[new ImageRun({data: logoBytes, transformation:{width:70, height:53}, type:'png'})]}),
-          new Paragraph({children:[new TextRun({text:'GMP ISO 22716 · QMS ISO 9001', size:14, color:'787878'})]}),
-          new Paragraph({children:[new TextRun({text:'Повідомлення про невідповідність продукції / напівфабрикату', bold:true, size:19})]}),
+          new Paragraph({alignment:AlignmentType.LEFT, children:[new ImageRun({data: logoBytes, transformation:{width:70, height:53}, type:'png'})]}),
+          new Paragraph({alignment:AlignmentType.LEFT, spacing:{before:40}, children:[new TextRun({text:'GMP ISO 22716 · QMS ISO 9001', size:14, color:'787878'})]}),
+          new Paragraph({alignment:AlignmentType.LEFT, children:[new TextRun({text:'Повідомлення про невідповідність продукції / напівфабрикату', bold:true, size:19})]}),
         ]}),
         cell('Дата:', {width:1600, color:'5A5A5A', size:16}),
         cell(fmtDate(a.date), {width:2100, size:17}),
@@ -2076,7 +2076,7 @@ async function downloadActDOCX(record){
   }
 
   const wordDoc = new Document({
-    styles: { default: { document: { run: { language: {value:'uk-UA'} } } } },
+    styles: { default: { document: { run: { language: {value:'uk-UA'} }, paragraph: { alignment: AlignmentType.LEFT } } } },
     sections: [{
       properties: {
         page: {
