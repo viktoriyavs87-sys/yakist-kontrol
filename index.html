@@ -989,7 +989,7 @@ function renderForm(){
     </div>
   </div>
 
-  ${f.controlType==='gp' ? renderContinuationSection(f) : ''}
+  ${renderContinuationSection(f)}
 
   <div class="card">
     <h2>Продукція</h2>
@@ -1122,8 +1122,8 @@ function renderForm(){
 
 /* ---- continuation-of-inspection section (Готова продукція only) ---- */
 function renderContinuationSection(f){
-  const todaysGp = state.records.filter(r=>
-    r.controlType==='gp' && r.date===f.date && recordSection(r)===f.section
+  const todaysSame = state.records.filter(r=>
+    r.controlType===f.controlType && r.date===f.date && recordSection(r)===f.section
   ).slice().sort((a,b)=>(b.time||'').localeCompare(a.time||''));
   return `
   <div class="card">
@@ -1132,19 +1132,19 @@ function renderContinuationSection(f){
       <button data-continue="no" class="${!f.continuesFrom?'selected':''}">Нова перевірка</button>
       <button data-continue="yes" class="${f.continuesFrom?'selected':''}">Продовження вже розпочатої</button>
     </div>
-    <div class="hint" style="margin-top:6px;">Використовуйте це, якщо партію перевіряють частинами — наприклад, спочатку один піддон, а через кілька годин інший. Раніше збережені дані не змінюються — це завжди новий, окремий запис.</div>
+    <div class="hint" style="margin-top:6px;">Використовуйте це, якщо партію перевіряють частинами протягом зміни — наприклад, розлив чи поклейка триває цілий день і перевірка робиться періодично. Раніше збережені дані не змінюються — це завжди новий, окремий запис.</div>
     ${f.showContinuePicker ? `
       <div class="field" style="margin-top:12px;">
         <label>Яку перевірку сьогодні продовжуємо?</label>
         <select id="f-continue-pick">
           <option value="">— оберіть запис —</option>
-          ${todaysGp.map(r=>`<option value="${esc(r.id)}" ${f.continuesFrom===r.id?'selected':''}>${esc(r.time)} · ${esc(r.trademark)} ${esc(r.productName)} · партія ${esc(fmtDate(r.batch))}</option>`).join('')}
+          ${todaysSame.map(r=>`<option value="${esc(r.id)}" ${f.continuesFrom===r.id?'selected':''}>${esc(r.time)} · ${esc(r.trademark)} ${esc(r.productName)} · партія ${esc(fmtDate(r.batch))}</option>`).join('')}
         </select>
-        ${todaysGp.length===0?'<div class="hint">Сьогодні ще немає збережених перевірок готової продукції для цієї дільниці.</div>':''}
+        ${todaysSame.length===0?'<div class="hint">Сьогодні ще немає збережених перевірок цього типу для цієї дільниці.</div>':''}
       </div>
       <div class="field">
         <label>Частина перевірки (необов'язково)</label>
-        <input type="text" id="f-continue-note" value="${esc(f.continuationNote)}" placeholder="напр. Піддон №2">
+        <input type="text" id="f-continue-note" value="${esc(f.continuationNote)}" placeholder="напр. Партія з 14:00 до 18:00">
       </div>
     ` : ''}
   </div>
@@ -2401,6 +2401,9 @@ function attachFormEvents(){
         f.trademark = rec.trademark; f.tmQuery = rec.trademark;
         f.productCode = rec.productCode; f.productName = rec.productName; f.prodQuery = rec.productName;
         f.batch = rec.batch; f.expiry = rec.expiry;
+        if(rec.controlType==='pf'){
+          f.gpProductCode = rec.gpProductCode||''; f.gpProductName = rec.gpProductName||''; f.gpProdQuery = rec.gpProductName||'';
+        }
       }
       render();
     };
