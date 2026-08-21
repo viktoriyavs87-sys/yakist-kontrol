@@ -378,17 +378,27 @@ function displayMeasurements(r){
 
 function controlTypeLabel(t){ return t==='pf' ? 'Проміжний контроль фасування ГП' : 'Готова продукція'; }
 
-// The 5 appearance/packaging checks required for finished-product (ГП) control
-const APPEARANCE_ITEMS = [
+// Appearance/packaging checks required before saving a record — different
+// checklist per control type, since проміжний контроль checks the semi-finished
+// good against a reference sample, while готова продукція checks the final pack.
+const APPEARANCE_ITEMS_GP = [
   {id:'semiProduct', label:'Відповідність напівфабрикату'},
   {id:'tara', label:'Відповідність тари'},
   {id:'ukuporka', label:'Відповідність укупорки'},
   {id:'marking', label:'Відповідність маркування (дата, термін придатності)'},
   {id:'label', label:'Відповідність ярлика та інформації на ньому (назва, штрих-код, дата, термін)'},
 ];
-function appearanceOverall(checks){
-  const vals = APPEARANCE_ITEMS.map(it=>checks[it.id]).filter(Boolean);
-  if(vals.length < APPEARANCE_ITEMS.length) return ''; // not all filled yet
+const APPEARANCE_ITEMS_PF = [
+  {id:'nf', label:'Відповідність НФ'},
+  {id:'reference_sample', label:'Відповідність зовнішнього вигляду еталонному зразку'},
+  {id:'marking', label:'Відповідність маркування'},
+  {id:'gofra_label', label:'Відповідність інформації на ярлику гофри'},
+];
+function appearanceItemsFor(controlType){ return controlType==='pf' ? APPEARANCE_ITEMS_PF : APPEARANCE_ITEMS_GP; }
+function appearanceOverall(checks, items){
+  items = items || APPEARANCE_ITEMS_GP;
+  const vals = items.map(it=>checks[it.id]).filter(Boolean);
+  if(vals.length < items.length) return ''; // not all filled yet
   if(vals.some(v=>v==='fail')) return 'fail';
   if(vals.some(v=>v==='note')) return 'note';
   return 'ok';
@@ -794,7 +804,7 @@ function renderActSaved(){
 /* ---- all-time list of non-compliance acts, independent of report date ---- */
 function renderActsList(){
   const isAdmin = state.session.role==='admin';
-  let recs = state.records.filter(r=>r.controlType==='gp' && r.act);
+  let recs = state.records.filter(r=>r.act);
   if(!isAdmin) recs = recs.filter(r=>recordSection(r)===state.session.section);
   recs = recs.slice().sort((a,b)=> `${b.date} ${b.time}`.localeCompare(`${a.date} ${a.time}`));
   return `
@@ -808,7 +818,7 @@ function renderActsList(){
         <div class="list-item">
           <div>
             <div class="li-name">№ ${esc(r.act.number||'без номера')} — ${esc(r.trademark)} ${esc(r.productName)}</div>
-            <div class="li-sub">${esc(fmtDate(r.date))}, ${esc(r.time)} · партія ${esc(fmtDate(r.batch))}${isAdmin?` · дільниця ${esc(recordSection(r))}`:''} · ${esc(r.engineer)}</div>
+            <div class="li-sub">${esc(fmtDate(r.date))}, ${esc(r.time)} · ${controlTypeLabel(r.controlType)} · партія ${esc(fmtDate(r.batch))}${isAdmin?` · дільниця ${esc(recordSection(r))}`:''} · ${esc(r.engineer)}</div>
           </div>
           <div style="display:flex;gap:6px;">
             <button class="btn btn-sm btn-danger" data-download-act="${esc(r.id)}" data-format="pdf">⬇️ PDF</button>
@@ -1080,7 +1090,7 @@ function renderForm(){
     <div class="tolerance-hint" id="f-tol-hint"></div>
   </div>
 
-  ${f.controlType==='gp' ? renderAppearanceSection(f) : ''}
+  ${renderAppearanceSection(f)}
 
   <div class="card">
     <h2>Відповідність</h2>
@@ -1141,11 +1151,12 @@ function renderContinuationSection(f){
   `;
 }
 function renderAppearanceSection(f){
-  const overall = appearanceOverall(f.appearanceChecks);
+  const items = appearanceItemsFor(f.controlType);
+  const overall = appearanceOverall(f.appearanceChecks, items);
   return `
   <div class="card">
-    <h2>Відповідність зовнішнього вигляду упакованого продукту</h2>
-    ${APPEARANCE_ITEMS.map(item=>`
+    <h2>Відповідність ${f.controlType==='pf' ? 'напівфабрикату та маркування' : 'зовнішнього вигляду упакованого продукту'}</h2>
+    ${items.map(item=>`
       <div class="field">
         <label>${esc(item.label)}</label>
         <div class="compliance-options" data-appearance-row="${item.id}">
@@ -1155,7 +1166,7 @@ function renderAppearanceSection(f){
         </div>
       </div>
     `).join('')}
-    ${overall ? `<div class="tolerance-hint show ${overall==='ok'?'ok':'fail'}">Загальний висновок по зовнішньому вигляду: <b>${appearanceLabel(overall)}</b>${overall==='fail'?' — потрібно скласти акт невідповідності нижче.':''}</div>` : `<div class="hint">Заповніть усі пункти — загальний висновок розрахується автоматично.</div>`}
+    ${overall ? `<div class="tolerance-hint show ${overall==='ok'?'ok':'fail'}">Загальний висновок: <b>${appearanceLabel(overall)}</b>${overall==='fail'?' — потрібно скласти акт невідповідності нижче.':''}</div>` : `<div class="hint">Заповніть усі пункти — загальний висновок розрахується автоматично.</div>`}
   </div>
 
   <div class="card">
@@ -1461,7 +1472,7 @@ function renderReport(){
       <div class="summary-box ${notes?'warn':''}"><div class="snum">${notes}</div><div class="slab">Із зауваженням</div></div>
       <div class="summary-box ${fails?'warn':''}"><div class="snum">${fails}</div><div class="slab">Не відповідає</div></div>
     </div>
-    ${isGp && acts>0 ? `<div class="tolerance-hint show fail" style="margin-bottom:14px;">⚠️ Складено актів невідповідності: ${acts}</div>` : ''}
+    ${acts>0 ? `<div class="tolerance-hint show fail" style="margin-bottom:14px;">⚠️ Складено актів невідповідності: ${acts}</div>` : ''}
     <div style="display:flex;gap:8px;flex-wrap:wrap;">
       <button class="btn btn-secondary" id="rep-xlsx" ${recs.length===0?'disabled':''}>⬇️ Excel</button>
       <button class="btn btn-secondary" id="rep-pdf" ${recs.length===0?'disabled':''}>⬇️ PDF</button>
@@ -1477,7 +1488,7 @@ function renderReport(){
         <thead><tr>
           <th>Час</th>${isAdmin?'<th>Дільниця</th>':''}<th>Інженер</th><th>ТМ</th><th>Найменування</th><th>Партія</th><th>Термін</th>
           <th>Операція</th><th>Норма</th><th>Заміри</th><th>Н/Б</th><th>Відповідність</th>
-          ${isGp?'<th>Зовн. вигляд</th><th>Дозвіл</th><th>Акт</th>':'<th>Обладнання</th>'}
+          <th>Зовн. вигляд</th><th>Дозвіл</th><th>Акт</th>${!isGp?'<th>Обладнання</th>':''}
           <th>Зауваження</th>
         </tr></thead>
         <tbody>
@@ -1494,11 +1505,10 @@ function renderReport(){
           <td>${esc(displayMeasurements(r))}</td>
           <td>${r.netBrutto==='netto'?'Нетто':'Брутто'}</td>
           <td><span class="badge ${r.compliance}">${r.compliance==='ok'?'Відповідає':r.compliance==='note'?'Із зауваж.':'Не відп.'}</span></td>
-          ${isGp?`
           <td><span class="badge ${r.appearanceOverall||''}">${appearanceLabel(r.appearanceOverall)}</span></td>
           <td>${r.permit?esc(r.permit.number||'так'):'—'}</td>
           <td>${r.act?`<button class="btn btn-sm btn-danger" data-download-act="${esc(r.id)}">⬇️ №${esc(r.act.number||'')}</button>`:'—'}</td>
-          `:`<td>${esc(r.equipment||'—')}</td>`}
+          ${!isGp?`<td>${esc(r.equipment||'—')}</td>`:''}
           <td>${esc(r.comment||'—')}</td>
         </tr>`).join('')}
         </tbody>
@@ -1518,11 +1528,9 @@ function buildReportText(recs, date){
     lines.push(`   Операція: ${opsLabel(r.ops)||'—'} | Норма: ${r.normValue} ${r.normUnit} (${r.netBrutto==='netto'?'нетто':'брутто'})`);
     lines.push(`   Заміри (нетто): ${displayMeasurements(r)||'—'}`);
     lines.push(`   Відповідність: ${r.compliance==='ok'?'Відповідає':r.compliance==='note'?'Із зауваженням':'Не відповідає'}${r.equipment?` | Обладнання: ${r.equipment}`:''}`);
-    if(isGp){
-      lines.push(`   Зовнішній вигляд: ${appearanceLabel(r.appearanceOverall)}`);
-      if(r.permit) lines.push(`   Дозвіл на відхилення: №${r.permit.number} від ${fmtDate(r.permit.date)} — ${r.permit.desc||''}`);
-      if(r.act) lines.push(`   АКТ НЕВІДПОВІДНОСТІ №${r.act.number} від ${fmtDate(r.act.date)}: ${r.act.desc}${r.act.actions?` | Заходи: ${r.act.actions}`:''}`);
-    }
+    lines.push(`   Зовнішній вигляд: ${appearanceLabel(r.appearanceOverall)}`);
+    if(r.permit) lines.push(`   Дозвіл на відхилення: №${r.permit.number} від ${fmtDate(r.permit.date)} — ${r.permit.desc||''}`);
+    if(r.act) lines.push(`   АКТ НЕВІДПОВІДНОСТІ №${r.act.number} від ${fmtDate(r.act.date)}: ${r.act.desc}${r.act.actions?` | Заходи: ${r.act.actions}`:''}`);
     if(r.comment) lines.push(`   Зауваження: ${r.comment}`);
     lines.push('');
   });
@@ -1562,12 +1570,13 @@ async function exportXLSX(recs, date){
       'Нетто/Брутто': r.netBrutto==='netto'?'Нетто':'Брутто',
       'Відповідність': r.compliance==='ok'?'Відповідає':r.compliance==='note'?'Із зауваженням':'Не відповідає',
     };
-    if(isGp){
-      row['Зовнішній вигляд'] = appearanceLabel(r.appearanceOverall);
-      row['Дозвіл на відхилення'] = r.permit ? `№${r.permit.number} від ${fmtDate(r.permit.date)} — ${r.permit.desc||''}` : '';
-      row['Акт невідповідності'] = r.act ? `№${r.act.number} від ${fmtDate(r.act.date)}: ${r.act.desc}${r.act.actions?` | Заходи: ${r.act.actions}`:''}` : '';
-    } else {
+    if(!isGp){
       row['Для готової продукції'] = r.gpProductName||'';
+    }
+    row['Зовнішній вигляд'] = appearanceLabel(r.appearanceOverall);
+    row['Дозвіл на відхилення'] = r.permit ? `№${r.permit.number} від ${fmtDate(r.permit.date)} — ${r.permit.desc||''}` : '';
+    row['Акт невідповідності'] = r.act ? `№${r.act.number} від ${fmtDate(r.act.date)}: ${r.act.desc}${r.act.actions?` | Заходи: ${r.act.actions}`:''}` : '';
+    if(!isGp){
       row['Обладнання'] = r.equipment||'';
     }
     row['Зауваження'] = r.comment||'';
@@ -1599,7 +1608,7 @@ async function exportPDF(recs, date){
   doc.setFontSize(13);
   doc.text(`Звіт контролю якості — ${isGp?'готова продукція':'проміжний контроль'} — ${fmtDate(date)}`, 14, 14);
   const head = [['Час','Дільниця','Інженер','ТМ','Найменування','Партія','Термін','Операція','Норма','Заміри','Н/Б','Відповідність',
-    ...(isGp?['Зовн. вигляд','Дозвіл','Акт']:['Обладнання']),'Зауваження']];
+    'Зовн. вигляд','Дозвіл','Акт', ...(isGp?[]:['Обладнання']),'Зауваження']];
   const body = recs.map(r=>[
     r.time, recordSection(r), r.engineer, r.trademark, r.productName,
     fmtDate(r.batch), fmtDate(r.expiry),
@@ -1608,11 +1617,10 @@ async function exportPDF(recs, date){
     displayMeasurements(r),
     r.netBrutto==='netto'?'Н':'Б',
     r.compliance==='ok'?'Відповідає':r.compliance==='note'?'Із зауваж.':'Не відповідає',
-    ...(isGp?[
-      appearanceLabel(r.appearanceOverall),
-      r.permit?`№${r.permit.number}`:'—',
-      r.act?`№${r.act.number}`:'—',
-    ]:[r.equipment||'']),
+    appearanceLabel(r.appearanceOverall),
+    r.permit?`№${r.permit.number}`:'—',
+    r.act?`№${r.act.number}`:'—',
+    ...(isGp?[]:[r.equipment||'']),
     r.comment||'',
   ]);
   doc.autoTable({
@@ -2360,8 +2368,8 @@ function attachFormEvents(){
   // Comment
   document.getElementById('f-comment').oninput = e=>{ f.comment=e.target.value; };
 
-  // Appearance checklist (Готова продукція only)
-  if(f.controlType==='gp'){
+  // Appearance checklist, deviation permit, non-compliance act, photos — now used by both control types
+  {
     document.querySelectorAll('[data-appearance]').forEach(el=>{
       el.onclick = ()=>{ f.appearanceChecks[el.dataset.appearance] = el.dataset.appval; render(); };
     });
@@ -2487,9 +2495,10 @@ function attachFormEvents(){
     if(!f.batch){ showToast('Вкажіть партію (дату НФ)','⚠️'); return; }
     if(!f.compliance){ showToast('Оберіть відповідність','⚠️'); return; }
     let appOverall = '';
-    if(f.controlType==='gp'){
-      if(APPEARANCE_ITEMS.some(it=>!f.appearanceChecks[it.id])){ showToast('Заповніть усі пункти зовнішнього вигляду','⚠️'); return; }
-      appOverall = appearanceOverall(f.appearanceChecks);
+    {
+      const items = appearanceItemsFor(f.controlType);
+      if(items.some(it=>!f.appearanceChecks[it.id])){ showToast('Заповніть усі пункти відповідності','⚠️'); return; }
+      appOverall = appearanceOverall(f.appearanceChecks, items);
       if(appOverall==='fail' && !f.actDesc.trim()){ showToast('Опишіть невідповідність в акті','⚠️'); return; }
       if(f.permitEnabled && !f.permitNumber.trim()){ showToast('Вкажіть номер дозволу на відхилення','⚠️'); return; }
     }
@@ -2519,6 +2528,8 @@ function attachFormEvents(){
     if(f.controlType==='gp'){
       record.continuesFrom = f.continuesFrom || null;
       record.continuationNote = f.continuationNote || '';
+    }
+    {
       record.appearanceChecks = Object.assign({}, f.appearanceChecks);
       record.appearanceOverall = appOverall;
       record.permit = f.permitEnabled ? {number:f.permitNumber, date:f.permitDate, desc:f.permitDesc} : null;
