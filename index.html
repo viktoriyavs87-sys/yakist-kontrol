@@ -1717,6 +1717,20 @@ async function downloadActPDF(record){
     });
     y = doc.lastAutoTable.finalY;
   };
+  // Wide header-row + single value-row table — matches the original's
+  // horizontal layout for "Ідентифікація ГП/Напівфабрикату".
+  const infoTableWide = (pairs)=>{
+    doc.autoTable({
+      head:[pairs.map(([label])=>label)],
+      body:[pairs.map(([,value])=>value||'—')],
+      startY:y, margin:{left:marginL, right:pageW-marginR},
+      styles:{font:'NotoSans', fontSize:6.3, cellPadding:3, lineColor:[190,190,190], lineWidth:0.5, valign:'top'},
+      headStyles:{fillColor:[240,242,240], textColor:[20,20,20], fontStyle:'normal'},
+      bodyStyles:{fontSize:8, minCellHeight:16},
+      theme:'grid',
+    });
+    y = doc.lastAutoTable.finalY;
+  };
   const textBox = (label, value)=>{
     subLabel(label);
     doc.autoTable({
@@ -1770,14 +1784,14 @@ async function downloadActPDF(record){
   checkboxGridRow(ACT_DISCOVERY_STAGES, a.discoveryStage?[a.discoveryStage]:[]);
 
   sectionTitle('Ідентифікація ГП / Напівфабрикату');
-  infoTable([
+  infoTableWide([
     ['Найменування ГП/Напівфабрикату', `${record.trademark} ${record.productName}`],
     ['Артикул / Складський код', record.productCode],
     ['№ Специфікації / № форми виробництва', a.specNumber],
     ['Дата виготовлення напівфабрикату', fmtDate(a.semiDate)],
     ['№ Партії ГП', fmtDate(record.batch)],
-    ['Загальна кількість партії', a.totalQty ? `${a.totalQty} ${a.totalQtyUnit}` : '—'],
-    ['Кількість невідповідної продукції', a.defectQty ? `${a.defectQty} ${a.defectQtyUnit}` : '—'],
+    ['Загальна кількість партії, Од. вим (шт/кг)', a.totalQty ? `${a.totalQty} ${a.totalQtyUnit}` : '—'],
+    ['Кількість невідповідної продукції, Од. вим (шт/кг)', a.defectQty ? `${a.defectQty} ${a.defectQtyUnit}` : '—'],
   ]);
 
   sectionTitle('Вид невідповідності');
@@ -1882,7 +1896,7 @@ async function downloadActDOCX(record){
   ]});
   const subLabelEl = (text)=> new Paragraph({spacing:{before:80,after:40}, children:[new TextRun({text, size:17, color:'3C3C3C'})]});
   const checkboxGridRow = (items, selectedIds)=>{
-    const w = Math.floor(9350/items.length);
+    const w = Math.floor(9000/items.length);
     return new Table({
       width:{size:100, type:WidthType.PERCENTAGE},
       rows:[
@@ -1897,9 +1911,9 @@ async function downloadActDOCX(record){
     const rows = [];
     for(let i=0;i<Math.max(left.length,right.length);i++){
       rows.push(new TableRow({children:[
-        cell(left[i]?left[i].label:'', {width:4200, size:16}),
+        cell(left[i]?left[i].label:'', {width:4000, size:16}),
         checkboxCell(left[i]?selectedIds.includes(left[i].id):false, 500),
-        cell(right[i]?right[i].label:'', {width:4200, size:16}),
+        cell(right[i]?right[i].label:'', {width:4000, size:16}),
         checkboxCell(right[i]?selectedIds.includes(right[i].id):false, 500),
       ]}));
     }
@@ -1909,15 +1923,27 @@ async function downloadActDOCX(record){
     width:{size:100, type:WidthType.PERCENTAGE},
     rows: rows.map(([label,value])=>new TableRow({children:[
       cell(label, {width:3000, color:'64645F', size:16}),
-      cell(value||'—', {width:6350, size:17}),
+      cell(value||'—', {width:6000, size:17}),
     ]})),
   });
+  // Wide header-row + single value-row table — matches the original's
+  // horizontal layout for "Ідентифікація ГП/Напівфабрикату".
+  const infoTableWideEl = (pairs)=>{
+    const w = Math.floor(9000/pairs.length);
+    return new Table({
+      width:{size:100, type:WidthType.PERCENTAGE},
+      rows:[
+        new TableRow({children: pairs.map(([label])=>cell(label, {width:w, fill:'F0F2F0', size:11}))}),
+        new TableRow({children: pairs.map(([,value])=>cell(value||'—', {width:w, size:15}))}),
+      ],
+    });
+  };
   const textBoxEl = (value)=> new Table({width:{size:100,type:WidthType.PERCENTAGE}, rows:[new TableRow({children:[cell(value||'—',{size:17})]})]});
   const signRowEl = (position, name, extraLabel, extraVal)=>{
     const head = ['Посада','ПІБ','Підпис'];
     const body = [position||'—', name||'—', ''];
     if(extraLabel){ head.push(extraLabel); body.push(extraVal); }
-    const w = Math.floor(9350/head.length);
+    const w = Math.floor(9000/head.length);
     return new Table({width:{size:100,type:WidthType.PERCENTAGE}, rows:[
       new TableRow({children: head.map(h=>cell(h,{width:w, fill:'F0F2F0', bold:true, size:16}))}),
       new TableRow({children: body.map(b=>cell(b,{width:w, size:17}))}),
@@ -1932,16 +1958,16 @@ async function downloadActDOCX(record){
     width:{size:100, type:WidthType.PERCENTAGE},
     rows:[
       new TableRow({children:[
-        new TableCell({rowSpan:3, width:{size:5500,type:WidthType.DXA}, borders:ALL_BORDERS, margins:CELL_MARGIN, verticalAlign:VerticalAlign.CENTER, children:[
+        new TableCell({rowSpan:3, width:{size:5300,type:WidthType.DXA}, borders:ALL_BORDERS, margins:CELL_MARGIN, verticalAlign:VerticalAlign.CENTER, children:[
           new Paragraph({children:[new ImageRun({data: logoBytes, transformation:{width:70, height:53}, type:'png'})]}),
           new Paragraph({children:[new TextRun({text:'GMP ISO 22716 · QMS ISO 9001', size:14, color:'787878'})]}),
           new Paragraph({children:[new TextRun({text:'Повідомлення про невідповідність продукції / напівфабрикату', bold:true, size:19})]}),
         ]}),
-        cell('Дата:', {width:1700, color:'5A5A5A', size:16}),
-        cell(fmtDate(a.date), {width:2150, size:17}),
+        cell('Дата:', {width:1600, color:'5A5A5A', size:16}),
+        cell(fmtDate(a.date), {width:2100, size:17}),
       ]}),
-      new TableRow({children:[cell('№ повідомлення:', {width:1700, color:'5A5A5A', size:16}), cell(a.number||'—', {width:2150, size:17})]}),
-      new TableRow({children:[cell('Сторінка / Сторінок:', {width:1700, color:'5A5A5A', size:16}), cell('Сторінка 1 з 1', {width:2150, size:17})]}),
+      new TableRow({children:[cell('№ повідомлення:', {width:1600, color:'5A5A5A', size:16}), cell(a.number||'—', {width:2100, size:17})]}),
+      new TableRow({children:[cell('Сторінка / Сторінок:', {width:1600, color:'5A5A5A', size:16}), cell('Сторінка 1 з 1', {width:2100, size:17})]}),
     ],
   }));
   children.push(new Paragraph({text:''}));
@@ -1951,14 +1977,14 @@ async function downloadActDOCX(record){
   children.push(new Paragraph({text:''}));
 
   children.push(sectionTitleEl(2, 'Ідентифікація ГП / Напівфабрикату'));
-  children.push(infoTableEl([
+  children.push(infoTableWideEl([
     ['Найменування ГП/Напівфабрикату', `${record.trademark} ${record.productName}`],
     ['Артикул / Складський код', record.productCode],
     ['№ Специфікації / № форми виробництва', a.specNumber],
     ['Дата виготовлення напівфабрикату', fmtDate(a.semiDate)],
     ['№ Партії ГП', fmtDate(record.batch)],
-    ['Загальна кількість партії', a.totalQty ? `${a.totalQty} ${a.totalQtyUnit}` : '—'],
-    ['Кількість невідповідної продукції', a.defectQty ? `${a.defectQty} ${a.defectQtyUnit}` : '—'],
+    ['Загальна кількість партії, Од. вим (шт/кг)', a.totalQty ? `${a.totalQty} ${a.totalQtyUnit}` : '—'],
+    ['Кількість невідповідної продукції, Од. вим (шт/кг)', a.defectQty ? `${a.defectQty} ${a.defectQtyUnit}` : '—'],
   ]));
   children.push(new Paragraph({text:''}));
 
@@ -2011,7 +2037,18 @@ async function downloadActDOCX(record){
     }
   }
 
-  const wordDoc = new Document({sections:[{children}]});
+  const wordDoc = new Document({
+    styles: { default: { document: { run: { language: {value:'uk-UA'} } } } },
+    sections: [{
+      properties: {
+        page: {
+          size: { width: 11906, height: 16838 }, // A4 in twips
+          margin: { top: 1000, bottom: 1000, left: 1440, right: 1440 },
+        },
+      },
+      children,
+    }],
+  });
   const blob = await Packer.toBlob(wordDoc);
   saveBlob(blob, `Акт_${(a.number||'без_номера').replace(/[\/\\]/g,'-')}_${record.date}.docx`);
 }
