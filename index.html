@@ -197,9 +197,12 @@ textarea{resize:vertical;min-height:64px;}
 }
 .comp-opt .cico{font-size:18px;display:block;margin-bottom:3px;}
 .comp-opt .clabel{font-size:11.5px;font-weight:700;}
+.comp-opt.compact .cico{font-size:15px;margin-bottom:2px;}
+.comp-opt.compact .clabel{font-size:9.5px;}
 .comp-opt[data-v=ok].selected{background:var(--green-tint);border-color:var(--green);color:var(--green);}
 .comp-opt[data-v=note].selected{background:var(--amber-tint);border-color:var(--amber);color:var(--amber);}
 .comp-opt[data-v=fail].selected{background:var(--red-tint);border-color:var(--red);color:var(--red);}
+.comp-opt[data-v=na].selected{background:#f0ede4;border-color:var(--ink-soft);color:var(--ink-soft);}
 .tolerance-hint{
   margin-top:8px;font-size:12px;padding:8px 10px;border-radius:7px;display:none;
 }
@@ -392,15 +395,16 @@ const APPEARANCE_ITEMS_PF = [
   {id:'nf', label:'Відповідність НФ'},
   {id:'reference_sample', label:'Відповідність зовнішнього вигляду еталонному зразку'},
   {id:'marking', label:'Відповідність маркування'},
-  {id:'gofra_label', label:'Відповідність інформації на ярлику гофри'},
 ];
 function appearanceItemsFor(controlType){ return controlType==='pf' ? APPEARANCE_ITEMS_PF : APPEARANCE_ITEMS_GP; }
 function appearanceOverall(checks, items){
   items = items || APPEARANCE_ITEMS_GP;
   const vals = items.map(it=>checks[it.id]).filter(Boolean);
-  if(vals.length < items.length) return ''; // not all filled yet
-  if(vals.some(v=>v==='fail')) return 'fail';
-  if(vals.some(v=>v==='note')) return 'note';
+  if(vals.length < items.length) return ''; // not all answered yet (na counts as answered)
+  const relevant = vals.filter(v=>v!=='na');
+  if(relevant.length===0) return 'ok'; // everything marked not applicable
+  if(relevant.some(v=>v==='fail')) return 'fail';
+  if(relevant.some(v=>v==='note')) return 'note';
   return 'ok';
 }
 function appearanceLabel(v){
@@ -1159,14 +1163,16 @@ function renderAppearanceSection(f){
     ${items.map(item=>`
       <div class="field">
         <label>${esc(item.label)}</label>
-        <div class="compliance-options" data-appearance-row="${item.id}">
-          <div class="comp-opt ${f.appearanceChecks[item.id]==='ok'?'selected':''}" data-v="ok" data-appearance="${item.id}" data-appval="ok"><span class="cico">✅</span><span class="clabel">Відповідає</span></div>
-          <div class="comp-opt ${f.appearanceChecks[item.id]==='note'?'selected':''}" data-v="note" data-appearance="${item.id}" data-appval="note"><span class="cico">⚠️</span><span class="clabel">Зауваження</span></div>
-          <div class="comp-opt ${f.appearanceChecks[item.id]==='fail'?'selected':''}" data-v="fail" data-appearance="${item.id}" data-appval="fail"><span class="cico">⛔</span><span class="clabel">Не відповідає</span></div>
+        <div class="compliance-options" data-appearance-row="${item.id}" style="grid-template-columns:repeat(4,1fr);">
+          <div class="comp-opt compact ${f.appearanceChecks[item.id]==='ok'?'selected':''}" data-v="ok" data-appearance="${item.id}" data-appval="ok"><span class="cico">✅</span><span class="clabel">Відповідає</span></div>
+          <div class="comp-opt compact ${f.appearanceChecks[item.id]==='note'?'selected':''}" data-v="note" data-appearance="${item.id}" data-appval="note"><span class="cico">⚠️</span><span class="clabel">Зауваження</span></div>
+          <div class="comp-opt compact ${f.appearanceChecks[item.id]==='fail'?'selected':''}" data-v="fail" data-appearance="${item.id}" data-appval="fail"><span class="cico">⛔</span><span class="clabel">Не відповідає</span></div>
+          <div class="comp-opt compact ${f.appearanceChecks[item.id]==='na'?'selected':''}" data-v="na" data-appearance="${item.id}" data-appval="na"><span class="cico">➖</span><span class="clabel">Н/З</span></div>
         </div>
       </div>
     `).join('')}
-    ${overall ? `<div class="tolerance-hint show ${overall==='ok'?'ok':'fail'}">Загальний висновок: <b>${appearanceLabel(overall)}</b>${overall==='fail'?' — потрібно скласти акт невідповідності нижче.':''}</div>` : `<div class="hint">Заповніть усі пункти — загальний висновок розрахується автоматично.</div>`}
+    <div class="hint" style="margin-bottom:10px;">«Н/З» — не застосовується сьогодні (наприклад, операцію не виконували цього дня).</div>
+    ${overall ? `<div class="tolerance-hint show ${overall==='ok'?'ok':'fail'}">Загальний висновок: <b>${appearanceLabel(overall)}</b>${overall==='fail'?' — потрібно скласти акт невідповідності нижче.':''}</div>` : `<div class="hint">Заповніть усі пункти (або позначте «Н/З») — загальний висновок розрахується автоматично.</div>`}
   </div>
 
   <div class="card">
