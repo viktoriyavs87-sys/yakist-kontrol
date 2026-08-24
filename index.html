@@ -365,7 +365,9 @@ function engineerSection(name){
 }
 
 const OPERATIONS = [
-  {id:'rozlyv', label:'Розлив (флакони/туби/сашет)'},
+  {id:'rozlyv_flakony', label:'Розлив у флакони'},
+  {id:'fasuvannya_sashet', label:'Фасування сашет'},
+  {id:'fasuvannya_tuba', label:'Фасування у тубу'},
   {id:'etyketuvannya', label:'Етикетування'},
   {id:'ruchne_fasuvannya', label:'Ручне фасування'},
   {id:'datuvannya', label:'Датування'},
@@ -1545,18 +1547,16 @@ function buildReportText(recs, date){
 
 function saveBlob(blob, filename){
   const url = URL.createObjectURL(blob);
-  let worked = true;
   try{
     const a = document.createElement('a');
     a.href = url; a.download = filename; a.style.display='none';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-  }catch(e){ worked = false; }
-  // Fallback for sandboxes that block the download attribute: open in a new tab
-  setTimeout(()=>{
-    try{ window.open(url, '_blank'); }catch(e){}
-  }, worked ? 400 : 0);
+  }catch(e){
+    // Only fall back to opening in a new tab if the download itself actually failed.
+    try{ window.open(url, '_blank'); }catch(e2){}
+  }
   setTimeout(()=>URL.revokeObjectURL(url), 60000);
 }
 
@@ -1683,7 +1683,7 @@ async function downloadActPDF(record){
     sectionNum++;
     doc.setFontSize(10);
     doc.setTextColor(255,255,255);
-    doc.setFillColor(18,54,47);
+    doc.setFillColor(31,158,89);
     doc.rect(marginL, y, fullW, 17, 'F');
     doc.text(`${sectionNum}. ${text}`, marginL+fullW/2, y+11.8, {align:'center'});
     y += 17;
@@ -1935,7 +1935,7 @@ async function downloadActDOCX(record){
       new TableCell({
         width:{size:9000, type:WidthType.DXA},
         borders: ALL_BORDERS,
-        shading:{type:ShadingType.CLEAR, fill:'12362F'},
+        shading:{type:ShadingType.CLEAR, fill:'1F9E59'},
         margins: CELL_MARGIN,
         children:[new Paragraph({style:'SectionTitleStyle', alignment:AlignmentType.CENTER, children:[new TextRun({text: num+' — '+text, bold:true, color:'FFFFFF', size:19})]})],
       }),
