@@ -352,6 +352,7 @@ let state = {
   catalogSaveFailed:false,
   productSearch:'',
   toastTimer:null,
+  viewActRecordId:null,
 };
 
 function knownSections(){
@@ -645,6 +646,7 @@ function renderScreen(){
     case 'admin': return renderAdmin();
     case 'actSaved': return renderActSaved();
     case 'acts': return renderActsList();
+    case 'actView': return renderActView();
     default: return renderHome();
   }
 }
@@ -826,13 +828,128 @@ function renderActsList(){
             <div class="li-name">№ ${esc(r.act.number||'без номера')} — ${esc(r.trademark)} ${esc(r.productName)}</div>
             <div class="li-sub">${esc(fmtDate(r.date))}, ${esc(r.time)} · ${controlTypeLabel(r.controlType)} · партія ${esc(fmtDate(r.batch))}${isAdmin?` · дільниця ${esc(recordSection(r))}`:''} · ${esc(r.engineer)}</div>
           </div>
-          <div style="display:flex;gap:6px;">
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button class="btn btn-sm btn-secondary" data-view-act="${esc(r.id)}">👁 Переглянути</button>
             <button class="btn btn-sm btn-danger" data-download-act="${esc(r.id)}" data-format="pdf">⬇️ PDF</button>
             <button class="btn btn-sm btn-secondary" data-download-act="${esc(r.id)}" data-format="docx">⬇️ Word</button>
           </div>
         </div>
       `).join('')
     }
+  </div>
+  `;
+}
+
+/* ---- in-app read-only preview of a non-compliance act ---- */
+function renderActView(){
+  const r = state.records.find(x=>x.id===state.viewActRecordId);
+  if(!r || !r.act) return renderActsList();
+  const a = r.act;
+  const yesNo = (arr, list)=> (arr||[]).length ? labelsFor(list, arr).join(', ') : '—';
+  const row = (label, value)=>`
+    <div style="display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--line);">
+      <span style="color:var(--ink-soft);font-size:12.5px;flex:0 0 45%;">${esc(label)}</span>
+      <span style="font-size:13px;text-align:right;flex:1;">${esc(value||'—')}</span>
+    </div>`;
+  return `
+  <div class="screen-head">
+    <button class="backbtn" data-goto="acts">←</button>
+    <h1>Акт № ${esc(a.number||'без номера')}</h1>
+  </div>
+
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+      <span class="badge fail">Не відповідає</span>
+      <span style="font-size:12px;color:var(--ink-soft);">${esc(fmtDate(a.date))}</span>
+    </div>
+    <h2 style="margin-top:6px;">${esc(r.trademark)} ${esc(r.productName)}</h2>
+    ${row('Тип контролю', controlTypeLabel(r.controlType))}
+    ${row('Дільниця', recordSection(r))}
+    ${row('Інженер', r.engineer)}
+    ${row('Партія', fmtDate(r.batch))}
+  </div>
+
+  <div class="card">
+    <h2>1 — Стадія виявлення невідповідності</h2>
+    ${row('Стадія', (ACT_DISCOVERY_STAGES.find(s=>s.id===a.discoveryStage)||{}).label)}
+  </div>
+
+  <div class="card">
+    <h2>2 — Ідентифікація ГП / Напівфабрикату</h2>
+    ${row('Найменування', `${r.trademark} ${r.productName}`)}
+    ${row('Артикул / Складський код', r.productCode)}
+    ${row('№ Специфікації / № форми виробництва', a.specNumber)}
+    ${row('Дата виготовлення напівфабрикату', fmtDate(a.semiDate))}
+    ${row('№ Партії ГП', fmtDate(r.batch))}
+    ${row('Загальна кількість партії', a.totalQty ? `${a.totalQty} ${a.totalQtyUnit}` : '—')}
+    ${row('Кількість невідповідної продукції', a.defectQty ? `${a.defectQty} ${a.defectQtyUnit}` : '—')}
+  </div>
+
+  <div class="card">
+    <h2>3 — Вид невідповідності</h2>
+    ${row('Вид', yesNo(a.nonComplianceTypes, ACT_NONCOMPLIANCE_TYPES))}
+    ${(a.nonComplianceTypes||[]).includes('other') ? row('Інше (уточнення)', a.nonComplianceOther) : ''}
+    <div class="field" style="margin-top:10px;">
+      <label>Опис дефекту / норма-факт</label>
+      <div style="font-size:13.5px;padding:10px 12px;background:#f7f5f0;border-radius:8px;">${esc(a.desc||'—')}</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>4 — Підготував</h2>
+    ${row('Посада', 'Інженер з якості')}
+    ${row('ПІБ', r.engineer)}
+  </div>
+
+  <div class="card">
+    <h2>5 — Причина невідповідності</h2>
+    ${row('Категорія', yesNo(a.causeCategories, ACT_CAUSE_CATEGORIES))}
+    <div class="field" style="margin-top:10px;">
+      <label>Детальний опис причини</label>
+      <div style="font-size:13.5px;padding:10px 12px;background:#f7f5f0;border-radius:8px;">${esc(a.causeDetail||'—')}</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>6 — Відповідальний за висновок</h2>
+    ${row('Посада', a.responsiblePosition)}
+    ${row('ПІБ', a.responsibleName)}
+  </div>
+
+  <div class="card">
+    <h2>7 — Статус</h2>
+    ${row('Статус', yesNo(a.statusOptions, ACT_STATUS_OPTIONS))}
+    ${a.actions ? `<div class="field" style="margin-top:10px;"><label>Додаткові примітки</label><div style="font-size:13.5px;padding:10px 12px;background:#f7f5f0;border-radius:8px;">${esc(a.actions)}</div></div>` : ''}
+  </div>
+
+  <div class="card">
+    <h2>8 — Статус присвоїв</h2>
+    ${row('Посада', 'Інженер з якості')}
+    ${row('ПІБ', a.assignedBy||r.engineer)}
+    ${row('Дата', fmtDate(a.date))}
+  </div>
+
+  ${r.permit ? `
+  <div class="card">
+    <h2>Дозвіл на відхилення</h2>
+    ${row('Номер', r.permit.number)}
+    ${row('Дата', fmtDate(r.permit.date))}
+    ${row('Опис', r.permit.desc)}
+  </div>
+  ` : ''}
+
+  ${a.photos && a.photos.length ? `
+  <div class="card">
+    <h2>Фото невідповідності</h2>
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      ${a.photos.map(p=>`<img src="${p.data}" style="width:100%;border-radius:8px;border:1px solid var(--line);">`).join('')}
+    </div>
+  </div>
+  ` : ''}
+
+  <div style="display:flex;gap:8px;">
+    <button class="btn btn-primary btn-block" data-download-act="${esc(r.id)}" data-format="pdf">⬇️ PDF</button>
+    <button class="btn btn-secondary btn-block" data-download-act="${esc(r.id)}" data-format="docx">⬇️ Word</button>
   </div>
   `;
 }
@@ -1683,14 +1800,14 @@ async function downloadActPDF(record){
     sectionNum++;
     doc.setFontSize(10);
     doc.setTextColor(255,255,255);
-    doc.setFillColor(31,158,89);
+    doc.setFillColor(21,122,66);
     doc.rect(marginL, y, fullW, 17, 'F');
     doc.text(`${sectionNum}. ${text}`, marginL+fullW/2, y+11.8, {align:'center'});
     y += 17;
     doc.setTextColor(20,20,20);
   };
   const subLabel = (text)=>{
-    doc.setFontSize(8.5);
+    doc.setFontSize(10);
     doc.setFont('NotoSans','normal');
     doc.setTextColor(60,60,60);
     doc.text(text, marginL+4, y+11);
@@ -1705,7 +1822,7 @@ async function downloadActPDF(record){
       head:[items.map(it=>it.label)],
       body:[items.map(()=>'')],
       startY:y, margin:{left:marginL, right:pageW-marginR},
-      styles:{font:'NotoSans', fontSize:6.2, cellPadding:3, valign:'top', fillColor:[255,255,255],
+      styles:{font:'NotoSans', fontSize:10, cellPadding:5, valign:'top', fillColor:[255,255,255],
         lineColor:[216,216,216], lineWidth:{top:0, right:0, bottom:0.5, left:0}},
       headStyles:{fillColor:[255,255,255], textColor:[20,20,20], fontStyle:'normal',
         lineWidth:{top:0, right:0, bottom:0.75, left:0}, lineColor:[150,150,150]},
@@ -1732,7 +1849,7 @@ async function downloadActPDF(record){
     for(let i=0;i<rows;i++) body.push([left[i]?left[i].label:'', '', right[i]?right[i].label:'', '']);
     doc.autoTable({
       body, startY:y, margin:{left:marginL, right:pageW-marginR},
-      styles:{font:'NotoSans', fontSize:8, cellPadding:4, valign:'middle', fillColor:[255,255,255],
+      styles:{font:'NotoSans', fontSize:10, cellPadding:5, valign:'middle', fillColor:[255,255,255],
         lineColor:[216,216,216], lineWidth:{top:0, right:0, bottom:0.5, left:0}},
       columnStyles:{0:{cellWidth:220},1:{cellWidth:35,halign:'center'},2:{cellWidth:'auto'},3:{cellWidth:35,halign:'center'}},
       theme:'plain',
@@ -1752,7 +1869,7 @@ async function downloadActPDF(record){
     doc.autoTable({
       body: rows.map(([label,value])=>[label, value||'—']),
       startY:y, margin:{left:marginL, right:pageW-marginR},
-      styles:{font:'NotoSans', fontSize:8.5, cellPadding:5, lineColor:[190,190,190], lineWidth:0.5, valign:'top'},
+      styles:{font:'NotoSans', fontSize:10, cellPadding:6, lineColor:[190,190,190], lineWidth:0.5, valign:'top'},
       columnStyles:{0:{cellWidth:170, fontStyle:'normal', textColor:[100,110,107]}, 1:{fontStyle:'normal'}},
       theme:'grid',
     });
@@ -1765,9 +1882,9 @@ async function downloadActPDF(record){
       head:[pairs.map(([label])=>label)],
       body:[pairs.map(([,value])=>value||'—')],
       startY:y, margin:{left:marginL, right:pageW-marginR},
-      styles:{font:'NotoSans', fontSize:6.3, cellPadding:3, lineColor:[190,190,190], lineWidth:0.5, valign:'top'},
-      headStyles:{fillColor:[240,242,240], textColor:[20,20,20], fontStyle:'normal'},
-      bodyStyles:{fontSize:8, minCellHeight:16},
+      styles:{font:'NotoSans', fontSize:9.5, cellPadding:5, lineColor:[190,190,190], lineWidth:0.5, valign:'top'},
+      headStyles:{fillColor:[240,242,240], textColor:[20,20,20], fontStyle:'normal', fontSize:7},
+      bodyStyles:{fontSize:9.5, minCellHeight:20},
       theme:'grid',
     });
     y = doc.lastAutoTable.finalY;
@@ -1777,7 +1894,7 @@ async function downloadActPDF(record){
     doc.autoTable({
       body: [[value || '—']],
       startY:y, margin:{left:marginL, right:pageW-marginR},
-      styles:{font:'NotoSans', fontSize:9, cellPadding:6, lineColor:[190,190,190], lineWidth:0.5},
+      styles:{font:'NotoSans', fontSize:10, cellPadding:7, lineColor:[190,190,190], lineWidth:0.5},
       theme:'grid',
     });
     y = doc.lastAutoTable.finalY;
@@ -1788,7 +1905,7 @@ async function downloadActPDF(record){
       head:[extraHead ? ['Посада','ПІБ','Підпис',extraHead] : ['Посада','ПІБ','Підпис']],
       body:[extraHead ? [position||'—', name||'—', '', extraVal] : [position||'—', name||'—', '']],
       startY:y, margin:{left:marginL, right:pageW-marginR},
-      styles:{font:'NotoSans', fontSize:8.5, cellPadding:5, lineColor:[190,190,190], lineWidth:0.5},
+      styles:{font:'NotoSans', fontSize:10, cellPadding:6, lineColor:[190,190,190], lineWidth:0.5},
       headStyles:{fillColor:[240,242,240], textColor:[20,20,20], fontStyle:'normal'},
       theme:'grid',
     });
@@ -1935,13 +2052,13 @@ async function downloadActDOCX(record){
       new TableCell({
         width:{size:9000, type:WidthType.DXA},
         borders: ALL_BORDERS,
-        shading:{type:ShadingType.CLEAR, fill:'1F9E59'},
+        shading:{type:ShadingType.CLEAR, fill:'157A42'},
         margins: CELL_MARGIN,
         children:[new Paragraph({style:'SectionTitleStyle', alignment:AlignmentType.CENTER, children:[new TextRun({text: num+' — '+text, bold:true, color:'FFFFFF', size:19})]})],
       }),
     ]}),
   ]});
-  const subLabelEl = (text)=> new Paragraph({spacing:{before:80,after:40}, children:[new TextRun({text, size:17, color:'3C3C3C'})]});
+  const subLabelEl = (text)=> new Paragraph({spacing:{before:80,after:40}, children:[new TextRun({text, size:20, color:'3C3C3C'})]});
   // Header row keeps a light rule; the value row underneath only has a bottom
   // rule (no inner grid) — matches the plain, uncluttered paper-form look.
   const checkboxGridRow = (items, selectedIds)=>{
@@ -1949,7 +2066,7 @@ async function downloadActDOCX(record){
     return new Table({
       width:{size:100, type:WidthType.PERCENTAGE},
       rows:[
-        new TableRow({children: items.map(it=>cell(it.label, {width:w, size:12, borders:ROW_BORDERS}))}),
+        new TableRow({children: items.map(it=>cell(it.label, {width:w, size:20, borders:ROW_BORDERS}))}),
         new TableRow({children: items.map(it=>checkboxCell(selectedIds.includes(it.id), w, ROW_BORDERS))}),
       ],
     });
@@ -1960,9 +2077,9 @@ async function downloadActDOCX(record){
     const rows = [];
     for(let i=0;i<Math.max(left.length,right.length);i++){
       rows.push(new TableRow({children:[
-        cell(left[i]?left[i].label:'', {width:4000, size:16, borders:ROW_BORDERS}),
+        cell(left[i]?left[i].label:'', {width:4000, size:20, borders:ROW_BORDERS}),
         checkboxCell(left[i]?selectedIds.includes(left[i].id):false, 500, ROW_BORDERS),
-        cell(right[i]?right[i].label:'', {width:4000, size:16, borders:ROW_BORDERS}),
+        cell(right[i]?right[i].label:'', {width:4000, size:20, borders:ROW_BORDERS}),
         checkboxCell(right[i]?selectedIds.includes(right[i].id):false, 500, ROW_BORDERS),
       ]}));
     }
@@ -1971,8 +2088,8 @@ async function downloadActDOCX(record){
   const infoTableEl = (rows)=> new Table({
     width:{size:100, type:WidthType.PERCENTAGE},
     rows: rows.map(([label,value])=>new TableRow({children:[
-      cell(label, {width:3000, color:'64645F', size:16}),
-      cell(value||'—', {width:6000, size:17}),
+      cell(label, {width:3000, color:'64645F', size:20}),
+      cell(value||'—', {width:6000, size:20}),
     ]})),
   });
   // Wide header-row + single value-row table — matches the original's
@@ -1982,20 +2099,20 @@ async function downloadActDOCX(record){
     return new Table({
       width:{size:100, type:WidthType.PERCENTAGE},
       rows:[
-        new TableRow({children: pairs.map(([label])=>cell(label, {width:w, fill:'F0F2F0', size:11}))}),
-        new TableRow({children: pairs.map(([,value])=>cell(value||'—', {width:w, size:15}))}),
+        new TableRow({children: pairs.map(([label])=>cell(label, {width:w, fill:'F0F2F0', size:14}))}),
+        new TableRow({children: pairs.map(([,value])=>cell(value||'—', {width:w, size:19}))}),
       ],
     });
   };
-  const textBoxEl = (value)=> new Table({width:{size:100,type:WidthType.PERCENTAGE}, rows:[new TableRow({children:[cell(value||'—',{size:17})]})]});
+  const textBoxEl = (value)=> new Table({width:{size:100,type:WidthType.PERCENTAGE}, rows:[new TableRow({children:[cell(value||'—',{size:20})]})]});
   const signRowEl = (position, name, extraLabel, extraVal)=>{
     const head = ['Посада','ПІБ','Підпис'];
     const body = [position||'—', name||'—', ''];
     if(extraLabel){ head.push(extraLabel); body.push(extraVal); }
     const w = Math.floor(9000/head.length);
     return new Table({width:{size:100,type:WidthType.PERCENTAGE}, rows:[
-      new TableRow({children: head.map(h=>cell(h,{width:w, fill:'F0F2F0', bold:true, size:16}))}),
-      new TableRow({children: body.map(b=>cell(b,{width:w, size:17}))}),
+      new TableRow({children: head.map(h=>cell(h,{width:w, fill:'F0F2F0', bold:true, size:20}))}),
+      new TableRow({children: body.map(b=>cell(b,{width:w, size:20}))}),
     ]});
   };
 
@@ -2264,7 +2381,13 @@ function attachScreenEvents(){
   if(state.screen==='new') attachFormEvents();
   if(state.screen==='report') attachReportEvents();
   if(state.screen==='admin') attachAdminEvents();
-  if(state.screen==='acts') attachActDownloadButtons();
+  if(state.screen==='acts'){
+    attachActDownloadButtons();
+    document.querySelectorAll('[data-view-act]').forEach(b=>{
+      b.onclick = ()=>{ state.viewActRecordId = b.dataset.viewAct; state.screen='actView'; render(); };
+    });
+  }
+  if(state.screen==='actView') attachActDownloadButtons();
   if(state.screen==='actSaved'){
     const bindDl = (id, fn)=>{
       const btn = document.getElementById(id);
