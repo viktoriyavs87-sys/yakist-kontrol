@@ -1930,12 +1930,14 @@ async function downloadActDOCX(record){
   });
   const sectionTitleEl = (num, text)=> new Table({
     width:{size:100, type:WidthType.PERCENTAGE},
+    columnWidths:[9000],
     rows:[new TableRow({children:[
       new TableCell({
+        width:{size:9000, type:WidthType.DXA},
         borders: ALL_BORDERS,
         shading:{type:ShadingType.CLEAR, fill:'12362F'},
         margins: CELL_MARGIN,
-        children:[new Paragraph({alignment:AlignmentType.CENTER, children:[new TextRun({text: num+' — '+text, bold:true, color:'FFFFFF', size:19})]})],
+        children:[new Paragraph({style:'SectionTitleStyle', alignment:AlignmentType.CENTER, children:[new TextRun({text: num+' — '+text, bold:true, color:'FFFFFF', size:19})]})],
       }),
     ]}),
   ]});
@@ -2009,9 +2011,9 @@ async function downloadActDOCX(record){
           new Paragraph({alignment:AlignmentType.CENTER, children:[new ImageRun({data: logoBytes, transformation:{width:64, height:49}, type:'png'})]}),
         ]}),
         new TableCell({rowSpan:3, width:{size:3800,type:WidthType.DXA}, borders:ALL_BORDERS, margins:CELL_MARGIN, verticalAlign:VerticalAlign.CENTER, children:[
-          new Paragraph({alignment:AlignmentType.CENTER, children:[new TextRun({text:'GMP ISO 22716', size:14, color:'787878'})]}),
-          new Paragraph({alignment:AlignmentType.CENTER, spacing:{after:40}, children:[new TextRun({text:'QMS ISO 9001', size:14, color:'787878'})]}),
-          new Paragraph({alignment:AlignmentType.CENTER, children:[new TextRun({text:'Повідомлення про невідповідність продукції / напівфабрикату', bold:true, size:19})]}),
+          new Paragraph({alignment:AlignmentType.CENTER, children:[new TextRun({text:'GMP ISO 22716', size:20, color:'000000'})]}),
+          new Paragraph({alignment:AlignmentType.CENTER, children:[new TextRun({text:'QMS ISO 9001', size:20, color:'000000'})]}),
+          new Paragraph({alignment:AlignmentType.CENTER, spacing:{before:40}, children:[new TextRun({text:'Повідомлення про невідповідність продукції / напівфабрикату', bold:true, size:20, color:'000000'})]}),
         ]}),
         cell('Дата:', {width:1600, color:'5A5A5A', size:16}),
         cell(fmtDate(a.date), {width:2100, size:17}),
@@ -2100,7 +2102,18 @@ async function downloadActDOCX(record){
   });
 
   const wordDoc = new Document({
-    styles: { default: { document: { run: { language: {value:'uk-UA'} }, paragraph: { alignment: AlignmentType.LEFT } } } },
+    styles: {
+      default: { document: { run: { language: {value:'uk-UA'} }, paragraph: { alignment: AlignmentType.LEFT } } },
+      paragraphStyles: [{
+        id: 'SectionTitleStyle',
+        name: 'Section Title',
+        basedOn: 'Normal',
+        next: 'Normal',
+        quickFormat: true,
+        run: { bold: true, color: 'FFFFFF', size: 19 },
+        paragraph: { alignment: AlignmentType.CENTER, spacing: {before:0, after:0} },
+      }],
+    },
     sections: [{
       properties: {
         page: {
