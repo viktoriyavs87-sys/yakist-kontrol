@@ -1699,16 +1699,18 @@ async function downloadActPDF(record){
   };
 
   // Single-row checkbox grid — one column per item, label above, checkbox below.
-  // Used for Стадія / Причина / Статус (matches the original's wide-row style).
+  // Used for Стадія / Причина / Статус. Only horizontal row rules, no inner grid.
   const checkboxGridRow = (items, selectedIds)=>{
     doc.autoTable({
       head:[items.map(it=>it.label)],
       body:[items.map(()=>'')],
       startY:y, margin:{left:marginL, right:pageW-marginR},
-      styles:{font:'NotoSans', fontSize:6.2, cellPadding:3, lineColor:[190,190,190], lineWidth:0.5, valign:'top'},
-      headStyles:{fillColor:[240,242,240], textColor:[20,20,20], fontStyle:'normal'},
-      bodyStyles:{minCellHeight:16},
-      theme:'grid',
+      styles:{font:'NotoSans', fontSize:6.2, cellPadding:3, valign:'top', fillColor:[255,255,255],
+        lineColor:[216,216,216], lineWidth:{top:0, right:0, bottom:0.5, left:0}},
+      headStyles:{fillColor:[255,255,255], textColor:[20,20,20], fontStyle:'normal',
+        lineWidth:{top:0, right:0, bottom:0.75, left:0}, lineColor:[150,150,150]},
+      bodyStyles:{minCellHeight:16, fillColor:[255,255,255]},
+      theme:'plain',
       didDrawCell: (data)=>{
         if(data.section==='body'){
           const item = items[data.column.index];
@@ -1721,7 +1723,7 @@ async function downloadActPDF(record){
   };
 
   // Two-column checklist — label with an inline checkbox at the end of each row,
-  // items split into a left and right column. Matches "Вид невідповідності".
+  // items split into a left and right column. Only horizontal row rules.
   const checklistTwoCol = (items, selectedIds)=>{
     const half = Math.ceil(items.length/2);
     const left = items.slice(0, half), right = items.slice(half);
@@ -1730,9 +1732,10 @@ async function downloadActPDF(record){
     for(let i=0;i<rows;i++) body.push([left[i]?left[i].label:'', '', right[i]?right[i].label:'', '']);
     doc.autoTable({
       body, startY:y, margin:{left:marginL, right:pageW-marginR},
-      styles:{font:'NotoSans', fontSize:8, cellPadding:4, lineColor:[190,190,190], lineWidth:0.5, valign:'middle'},
+      styles:{font:'NotoSans', fontSize:8, cellPadding:4, valign:'middle', fillColor:[255,255,255],
+        lineColor:[216,216,216], lineWidth:{top:0, right:0, bottom:0.5, left:0}},
       columnStyles:{0:{cellWidth:220},1:{cellWidth:35,halign:'center'},2:{cellWidth:'auto'},3:{cellWidth:35,halign:'center'}},
-      theme:'grid',
+      theme:'plain',
       didDrawCell: (data)=>{
         if(data.column.index===1 || data.column.index===3){
           const arr = data.column.index===1 ? left : right;
@@ -1888,13 +1891,17 @@ async function downloadActDOCX(record){
   }
   const {
     Document, Paragraph, Table, TableRow, TableCell, TextRun, ImageRun, Packer,
-    WidthType, AlignmentType, ShadingType, VerticalAlign, BorderStyle
+    WidthType, AlignmentType, ShadingType, VerticalAlign, BorderStyle,
+    Footer, TabStopType, TabStopPosition
   } = window.docx;
 
   const a = record.act || {};
   const CELL_MARGIN = {top:60, bottom:60, left:80, right:80};
   const BORDER = { style: BorderStyle.SINGLE, size: 2, color: 'BEBEBE' };
   const ALL_BORDERS = { top:BORDER, bottom:BORDER, left:BORDER, right:BORDER };
+  const NOBORDER = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
+  const ROWLINE = { style: BorderStyle.SINGLE, size: 3, color: 'D8D8D8' };
+  const ROW_BORDERS = { top:NOBORDER, bottom:ROWLINE, left:NOBORDER, right:NOBORDER };
 
   const cell = (text, opts)=>{
     opts = opts||{};
@@ -1903,7 +1910,7 @@ async function downloadActDOCX(record){
       columnSpan: opts.colSpan, rowSpan: opts.rowSpan,
       verticalAlign: VerticalAlign.CENTER,
       margins: CELL_MARGIN,
-      borders: ALL_BORDERS,
+      borders: opts.borders || ALL_BORDERS,
       shading: opts.fill ? {type:ShadingType.CLEAR, fill:opts.fill} : undefined,
       children: [new Paragraph({
         alignment: opts.align || AlignmentType.LEFT,
@@ -1911,11 +1918,11 @@ async function downloadActDOCX(record){
       })],
     });
   };
-  const checkboxCell = (checked, width)=> new TableCell({
+  const checkboxCell = (checked, width, borders)=> new TableCell({
     width: {size:width, type:WidthType.DXA},
     verticalAlign: VerticalAlign.CENTER,
     margins: CELL_MARGIN,
-    borders: ALL_BORDERS,
+    borders: borders || ALL_BORDERS,
     children: [new Paragraph({
       alignment: AlignmentType.CENTER,
       children: [new TextRun({text: checked ? '☒' : '☐', size: 22, color: checked ? 'B23429' : '3C3C3C', bold: checked})],
@@ -1933,13 +1940,15 @@ async function downloadActDOCX(record){
     ]}),
   ]});
   const subLabelEl = (text)=> new Paragraph({spacing:{before:80,after:40}, children:[new TextRun({text, size:17, color:'3C3C3C'})]});
+  // Header row keeps a light rule; the value row underneath only has a bottom
+  // rule (no inner grid) — matches the plain, uncluttered paper-form look.
   const checkboxGridRow = (items, selectedIds)=>{
     const w = Math.floor(9000/items.length);
     return new Table({
       width:{size:100, type:WidthType.PERCENTAGE},
       rows:[
-        new TableRow({children: items.map(it=>cell(it.label, {width:w, fill:'F0F2F0', size:12}))}),
-        new TableRow({children: items.map(it=>checkboxCell(selectedIds.includes(it.id), w))}),
+        new TableRow({children: items.map(it=>cell(it.label, {width:w, size:12, borders:ROW_BORDERS}))}),
+        new TableRow({children: items.map(it=>checkboxCell(selectedIds.includes(it.id), w, ROW_BORDERS))}),
       ],
     });
   };
@@ -1949,10 +1958,10 @@ async function downloadActDOCX(record){
     const rows = [];
     for(let i=0;i<Math.max(left.length,right.length);i++){
       rows.push(new TableRow({children:[
-        cell(left[i]?left[i].label:'', {width:4000, size:16}),
-        checkboxCell(left[i]?selectedIds.includes(left[i].id):false, 500),
-        cell(right[i]?right[i].label:'', {width:4000, size:16}),
-        checkboxCell(right[i]?selectedIds.includes(right[i].id):false, 500),
+        cell(left[i]?left[i].label:'', {width:4000, size:16, borders:ROW_BORDERS}),
+        checkboxCell(left[i]?selectedIds.includes(left[i].id):false, 500, ROW_BORDERS),
+        cell(right[i]?right[i].label:'', {width:4000, size:16, borders:ROW_BORDERS}),
+        checkboxCell(right[i]?selectedIds.includes(right[i].id):false, 500, ROW_BORDERS),
       ]}));
     }
     return new Table({width:{size:100,type:WidthType.PERCENTAGE}, rows});
@@ -1996,9 +2005,12 @@ async function downloadActDOCX(record){
     width:{size:100, type:WidthType.PERCENTAGE},
     rows:[
       new TableRow({children:[
-        new TableCell({rowSpan:3, width:{size:5300,type:WidthType.DXA}, borders:ALL_BORDERS, margins:CELL_MARGIN, verticalAlign:VerticalAlign.CENTER, children:[
-          new Paragraph({alignment:AlignmentType.CENTER, children:[new ImageRun({data: logoBytes, transformation:{width:70, height:53}, type:'png'})]}),
-          new Paragraph({alignment:AlignmentType.CENTER, spacing:{before:40}, children:[new TextRun({text:'GMP ISO 22716 · QMS ISO 9001', size:14, color:'787878'})]}),
+        new TableCell({rowSpan:3, width:{size:1500,type:WidthType.DXA}, borders:ALL_BORDERS, margins:CELL_MARGIN, verticalAlign:VerticalAlign.CENTER, children:[
+          new Paragraph({alignment:AlignmentType.CENTER, children:[new ImageRun({data: logoBytes, transformation:{width:64, height:49}, type:'png'})]}),
+        ]}),
+        new TableCell({rowSpan:3, width:{size:3800,type:WidthType.DXA}, borders:ALL_BORDERS, margins:CELL_MARGIN, verticalAlign:VerticalAlign.CENTER, children:[
+          new Paragraph({alignment:AlignmentType.CENTER, children:[new TextRun({text:'GMP ISO 22716', size:14, color:'787878'})]}),
+          new Paragraph({alignment:AlignmentType.CENTER, spacing:{after:40}, children:[new TextRun({text:'QMS ISO 9001', size:14, color:'787878'})]}),
           new Paragraph({alignment:AlignmentType.CENTER, children:[new TextRun({text:'Повідомлення про невідповідність продукції / напівфабрикату', bold:true, size:19})]}),
         ]}),
         cell('Дата:', {width:1600, color:'5A5A5A', size:16}),
@@ -2061,8 +2073,6 @@ async function downloadActDOCX(record){
 
   children.push(sectionTitleEl(8, 'Статус присвоїв'));
   children.push(signRowEl('Інженер з якості', a.assignedBy||record.engineer, 'Дата:', fmtDate(a.date)));
-  children.push(new Paragraph({text:''}));
-  children.push(new Paragraph({children:[new TextRun({text:'F-QC-8.7/10-05', size:14, color:'8C8C8C'})]}));
 
   // Photo evidence, each on its own page
   if(a.photos && a.photos.length){
@@ -2075,6 +2085,20 @@ async function downloadActDOCX(record){
     }
   }
 
+  const pageContentWidth = 11906 - 1440 - 1440; // A4 width minus left/right margins, in twips
+  const footer = new Footer({
+    children: [new Paragraph({
+      tabStops: [
+        { type: TabStopType.CENTER, position: pageContentWidth/2 },
+        { type: TabStopType.RIGHT, position: pageContentWidth },
+      ],
+      children: [
+        new TextRun({text:'F-QC-8.7/10-05', size:14, color:'8C8C8C'}),
+        new TextRun({text:'\tРев. No. 01\t21.04.2021', size:14, color:'8C8C8C'}),
+      ],
+    })],
+  });
+
   const wordDoc = new Document({
     styles: { default: { document: { run: { language: {value:'uk-UA'} }, paragraph: { alignment: AlignmentType.LEFT } } } },
     sections: [{
@@ -2084,6 +2108,7 @@ async function downloadActDOCX(record){
           margin: { top: 1000, bottom: 1000, left: 1440, right: 1440 },
         },
       },
+      footers: { default: footer },
       children,
     }],
   });
