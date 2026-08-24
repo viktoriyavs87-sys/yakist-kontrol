@@ -1816,18 +1816,17 @@ async function downloadActPDF(record){
   };
 
   // Single-row checkbox grid — one column per item, label above, checkbox below.
-  // Used for Стадія / Причина / Статус. Only horizontal row rules, no inner grid.
+  // Used for Стадія / Причина / Статус. Full grid, matching sections 2/4/6.
   const checkboxGridRow = (items, selectedIds)=>{
     doc.autoTable({
       head:[items.map(it=>it.label)],
       body:[items.map(()=>'')],
       startY:y, margin:{left:marginL, right:pageW-marginR},
       styles:{font:'NotoSans', fontSize:10, cellPadding:5, valign:'top', fillColor:[255,255,255],
-        lineColor:[216,216,216], lineWidth:{top:0, right:0, bottom:0.5, left:0}},
-      headStyles:{fillColor:[255,255,255], textColor:[20,20,20], fontStyle:'normal',
-        lineWidth:{top:0, right:0, bottom:0.75, left:0}, lineColor:[150,150,150]},
+        lineColor:[190,190,190], lineWidth:0.5},
+      headStyles:{fillColor:[240,242,240], textColor:[20,20,20], fontStyle:'normal'},
       bodyStyles:{minCellHeight:16, fillColor:[255,255,255]},
-      theme:'plain',
+      theme:'grid',
       didDrawCell: (data)=>{
         if(data.section==='body'){
           const item = items[data.column.index];
@@ -1840,7 +1839,7 @@ async function downloadActPDF(record){
   };
 
   // Two-column checklist — label with an inline checkbox at the end of each row,
-  // items split into a left and right column. Only horizontal row rules.
+  // items split into a left and right column. Full grid, matching sections 2/4/6.
   const checklistTwoCol = (items, selectedIds)=>{
     const half = Math.ceil(items.length/2);
     const left = items.slice(0, half), right = items.slice(half);
@@ -1850,9 +1849,9 @@ async function downloadActPDF(record){
     doc.autoTable({
       body, startY:y, margin:{left:marginL, right:pageW-marginR},
       styles:{font:'NotoSans', fontSize:10, cellPadding:5, valign:'middle', fillColor:[255,255,255],
-        lineColor:[216,216,216], lineWidth:{top:0, right:0, bottom:0.5, left:0}},
+        lineColor:[190,190,190], lineWidth:0.5},
       columnStyles:{0:{cellWidth:220},1:{cellWidth:35,halign:'center'},2:{cellWidth:'auto'},3:{cellWidth:35,halign:'center'}},
-      theme:'plain',
+      theme:'grid',
       didDrawCell: (data)=>{
         if(data.column.index===1 || data.column.index===3){
           const arr = data.column.index===1 ? left : right;
@@ -1913,6 +1912,7 @@ async function downloadActPDF(record){
   };
 
   // Header — bordered box: logo + title on the left, Дата/№/Сторінка meta table on the right
+  let pageFieldCell = null;
   doc.autoTable({
     body: [
       [{content:'', rowSpan:3}, 'Дата:', fmtDate(a.date)],
@@ -1933,6 +1933,9 @@ async function downloadActPDF(record){
         doc.setFontSize(10.5);
         const tLines = doc.splitTextToSize('Повідомлення про невідповідність продукції / напівфабрикату', data.cell.width-66);
         doc.text(tLines, data.cell.x+60, data.cell.y+29);
+      }
+      if(data.column.index===2 && data.row.index===2){
+        pageFieldCell = {x:data.cell.x, y:data.cell.y, width:data.cell.width, height:data.cell.height};
       }
     },
   });
@@ -1996,6 +1999,26 @@ async function downloadActPDF(record){
     });
   }
 
+  // Now that all pages exist, go back and fill in the real page count —
+  // and label every page so it's clear which page you're on.
+  const totalPages = doc.internal.getNumberOfPages();
+  for(let p=1; p<=totalPages; p++){
+    doc.setPage(p);
+    doc.setFont('NotoSans');
+    doc.setFontSize(8);
+    doc.setTextColor(140,140,140);
+    doc.text(`Сторінка ${p} з ${totalPages}`, marginR, 20, {align:'right'});
+  }
+  if(pageFieldCell){
+    doc.setPage(1);
+    doc.setFillColor(255,255,255);
+    doc.rect(pageFieldCell.x, pageFieldCell.y, pageFieldCell.width, pageFieldCell.height, 'F');
+    doc.setFont('NotoSans');
+    doc.setFontSize(9);
+    doc.setTextColor(20,20,20);
+    doc.text(`Сторінка 1 з ${totalPages}`, pageFieldCell.x+5, pageFieldCell.y+pageFieldCell.height/2+3);
+  }
+
   const blob = doc.output('blob');
   saveBlob(blob, `Акт_${(a.number||'без_номера').replace(/[\/\\]/g,'-')}_${record.date}.pdf`);
 }
@@ -2009,7 +2032,7 @@ async function downloadActDOCX(record){
   const {
     Document, Paragraph, Table, TableRow, TableCell, TextRun, ImageRun, Packer,
     WidthType, AlignmentType, ShadingType, VerticalAlign, BorderStyle,
-    Footer, TabStopType, TabStopPosition, TableLayoutType
+    Footer, TabStopType, TabStopPosition, TableLayoutType, PageNumber
   } = window.docx;
 
   const a = record.act || {};
@@ -2067,8 +2090,8 @@ async function downloadActDOCX(record){
       width:{size:100, type:WidthType.PERCENTAGE}, layout: TableLayoutType.FIXED,
       columnWidths: items.map(()=>w),
       rows:[
-        new TableRow({children: items.map(it=>cell(it.label, {width:w, size:20, borders:ROW_BORDERS}))}),
-        new TableRow({children: items.map(it=>checkboxCell(selectedIds.includes(it.id), w, ROW_BORDERS))}),
+        new TableRow({children: items.map(it=>cell(it.label, {width:w, size:20, borders:ALL_BORDERS}))}),
+        new TableRow({children: items.map(it=>checkboxCell(selectedIds.includes(it.id), w, ALL_BORDERS))}),
       ],
     });
   };
@@ -2078,10 +2101,10 @@ async function downloadActDOCX(record){
     const rows = [];
     for(let i=0;i<Math.max(left.length,right.length);i++){
       rows.push(new TableRow({children:[
-        cell(left[i]?left[i].label:'', {width:4620, size:20, borders:ROW_BORDERS}),
-        checkboxCell(left[i]?selectedIds.includes(left[i].id):false, 580, ROW_BORDERS),
-        cell(right[i]?right[i].label:'', {width:4620, size:20, borders:ROW_BORDERS}),
-        checkboxCell(right[i]?selectedIds.includes(right[i].id):false, 580, ROW_BORDERS),
+        cell(left[i]?left[i].label:'', {width:4620, size:20, borders:ALL_BORDERS}),
+        checkboxCell(left[i]?selectedIds.includes(left[i].id):false, 580, ALL_BORDERS),
+        cell(right[i]?right[i].label:'', {width:4620, size:20, borders:ALL_BORDERS}),
+        checkboxCell(right[i]?selectedIds.includes(right[i].id):false, 580, ALL_BORDERS),
       ]}));
     }
     return new Table({width:{size:100,type:WidthType.PERCENTAGE}, layout: TableLayoutType.FIXED, columnWidths:[4620,580,4620,580], rows});
@@ -2139,7 +2162,21 @@ async function downloadActDOCX(record){
         cell(fmtDate(a.date), {width:2430, size:19}),
       ]}),
       new TableRow({children:[cell('№ повідомлення:', {width:1850, color:'5A5A5A', size:18}), cell(a.number||'—', {width:2430, size:19})]}),
-      new TableRow({children:[cell('Сторінка / Сторінок:', {width:1850, color:'5A5A5A', size:18}), cell('Сторінка 1 з 1', {width:2430, size:19})]}),
+      new TableRow({children:[
+        cell('Сторінка / Сторінок:', {width:1850, color:'5A5A5A', size:18}),
+        new TableCell({
+          width:{size:2430, type:WidthType.DXA},
+          verticalAlign: VerticalAlign.CENTER,
+          margins: CELL_MARGIN,
+          borders: ALL_BORDERS,
+          children: [new Paragraph({children:[
+            new TextRun({text:'Сторінка ', size:19}),
+            new TextRun({children:[PageNumber.CURRENT], size:19}),
+            new TextRun({text:' з ', size:19}),
+            new TextRun({children:[PageNumber.TOTAL_PAGES], size:19}),
+          ]})],
+        }),
+      ]}),
     ],
   }));
   children.push(new Paragraph({text:''}));
