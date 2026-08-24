@@ -1773,7 +1773,7 @@ async function downloadActPDF(record){
   doc.setFont('NotoSans');
 
   const a = record.act || {};
-  const marginL = 40, marginR = 555;
+  const marginL = 24, marginR = 571;
   const fullW = marginR - marginL;
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
@@ -1800,7 +1800,7 @@ async function downloadActPDF(record){
     sectionNum++;
     doc.setFontSize(10);
     doc.setTextColor(255,255,255);
-    doc.setFillColor(21,122,66);
+    doc.setFillColor(15,80,45);
     doc.rect(marginL, y, fullW, 17, 'F');
     doc.text(`${sectionNum}. ${text}`, marginL+fullW/2, y+11.8, {align:'center'});
     y += 17;
@@ -2047,12 +2047,12 @@ async function downloadActDOCX(record){
   });
   const sectionTitleEl = (num, text)=> new Table({
     width:{size:100, type:WidthType.PERCENTAGE}, layout: TableLayoutType.FIXED,
-    columnWidths:[9000],
+    columnWidths:[10400],
     rows:[new TableRow({children:[
       new TableCell({
-        width:{size:9000, type:WidthType.DXA},
+        width:{size:10400, type:WidthType.DXA},
         borders: ALL_BORDERS,
-        shading:{type:ShadingType.CLEAR, fill:'157A42'},
+        shading:{type:ShadingType.CLEAR, fill:'0F502D'},
         margins: CELL_MARGIN,
         children:[new Paragraph({style:'SectionTitleStyle', alignment:AlignmentType.CENTER, children:[new TextRun({text: num+' — '+text, bold:true, color:'FFFFFF', size:19})]})],
       }),
@@ -2062,7 +2062,7 @@ async function downloadActDOCX(record){
   // Header row keeps a light rule; the value row underneath only has a bottom
   // rule (no inner grid) — matches the plain, uncluttered paper-form look.
   const checkboxGridRow = (items, selectedIds)=>{
-    const w = Math.floor(9000/items.length);
+    const w = Math.floor(10400/items.length);
     return new Table({
       width:{size:100, type:WidthType.PERCENTAGE}, layout: TableLayoutType.FIXED,
       columnWidths: items.map(()=>w),
@@ -2078,13 +2078,13 @@ async function downloadActDOCX(record){
     const rows = [];
     for(let i=0;i<Math.max(left.length,right.length);i++){
       rows.push(new TableRow({children:[
-        cell(left[i]?left[i].label:'', {width:4000, size:20, borders:ROW_BORDERS}),
-        checkboxCell(left[i]?selectedIds.includes(left[i].id):false, 500, ROW_BORDERS),
-        cell(right[i]?right[i].label:'', {width:4000, size:20, borders:ROW_BORDERS}),
-        checkboxCell(right[i]?selectedIds.includes(right[i].id):false, 500, ROW_BORDERS),
+        cell(left[i]?left[i].label:'', {width:4620, size:20, borders:ROW_BORDERS}),
+        checkboxCell(left[i]?selectedIds.includes(left[i].id):false, 580, ROW_BORDERS),
+        cell(right[i]?right[i].label:'', {width:4620, size:20, borders:ROW_BORDERS}),
+        checkboxCell(right[i]?selectedIds.includes(right[i].id):false, 580, ROW_BORDERS),
       ]}));
     }
-    return new Table({width:{size:100,type:WidthType.PERCENTAGE}, layout: TableLayoutType.FIXED, columnWidths:[4000,500,4000,500], rows});
+    return new Table({width:{size:100,type:WidthType.PERCENTAGE}, layout: TableLayoutType.FIXED, columnWidths:[4620,580,4620,580], rows});
   };
   const infoTableEl = (rows)=> new Table({
     width:{size:100, type:WidthType.PERCENTAGE}, layout: TableLayoutType.FIXED,
@@ -2096,7 +2096,7 @@ async function downloadActDOCX(record){
   // Wide header-row + single value-row table — matches the original's
   // horizontal layout for "Ідентифікація ГП/Напівфабрикату".
   const infoTableWideEl = (pairs)=>{
-    const w = Math.floor(9000/pairs.length);
+    const w = Math.floor(10400/pairs.length);
     return new Table({
       width:{size:100, type:WidthType.PERCENTAGE}, layout: TableLayoutType.FIXED,
       columnWidths: pairs.map(()=>w),
@@ -2106,12 +2106,12 @@ async function downloadActDOCX(record){
       ],
     });
   };
-  const textBoxEl = (value)=> new Table({width:{size:100,type:WidthType.PERCENTAGE}, layout: TableLayoutType.FIXED, columnWidths:[9000], rows:[new TableRow({children:[cell(value||'—',{size:20})]})]});
+  const textBoxEl = (value)=> new Table({width:{size:100,type:WidthType.PERCENTAGE}, layout: TableLayoutType.FIXED, columnWidths:[10400], rows:[new TableRow({children:[cell(value||'—',{size:20})]})]});
   const signRowEl = (position, name, extraLabel, extraVal)=>{
     const head = ['Посада','ПІБ','Підпис'];
     const body = [position||'—', name||'—', ''];
     if(extraLabel){ head.push(extraLabel); body.push(extraVal); }
-    const w = Math.floor(9000/head.length);
+    const w = Math.floor(10400/head.length);
     return new Table({width:{size:100,type:WidthType.PERCENTAGE}, layout: TableLayoutType.FIXED, columnWidths: head.map(()=>w), rows:[
       new TableRow({children: head.map(h=>cell(h,{width:w, fill:'F0F2F0', bold:true, size:20}))}),
       new TableRow({children: body.map(b=>cell(b,{width:w, size:20}))}),
@@ -2124,22 +2124,22 @@ async function downloadActDOCX(record){
   const children = [];
   children.push(new Table({
     width:{size:100, type:WidthType.PERCENTAGE}, layout: TableLayoutType.FIXED,
-    columnWidths:[1500,3800,1600,2100],
+    columnWidths:[1730,4390,1850,2430],
     rows:[
       new TableRow({children:[
-        new TableCell({rowSpan:3, width:{size:1500,type:WidthType.DXA}, borders:ALL_BORDERS, margins:CELL_MARGIN, verticalAlign:VerticalAlign.CENTER, children:[
+        new TableCell({rowSpan:3, width:{size:1730,type:WidthType.DXA}, borders:ALL_BORDERS, margins:CELL_MARGIN, verticalAlign:VerticalAlign.CENTER, children:[
           new Paragraph({alignment:AlignmentType.CENTER, children:[new ImageRun({data: logoBytes, transformation:{width:64, height:49}, type:'png'})]}),
         ]}),
-        new TableCell({rowSpan:3, width:{size:3800,type:WidthType.DXA}, borders:ALL_BORDERS, margins:CELL_MARGIN, verticalAlign:VerticalAlign.CENTER, children:[
+        new TableCell({rowSpan:3, width:{size:4390,type:WidthType.DXA}, borders:ALL_BORDERS, margins:CELL_MARGIN, verticalAlign:VerticalAlign.CENTER, children:[
           new Paragraph({alignment:AlignmentType.CENTER, children:[new TextRun({text:'GMP ISO 22716', size:20, color:'000000'})]}),
           new Paragraph({alignment:AlignmentType.CENTER, children:[new TextRun({text:'QMS ISO 9001', size:20, color:'000000'})]}),
           new Paragraph({alignment:AlignmentType.CENTER, spacing:{before:40}, children:[new TextRun({text:'Повідомлення про невідповідність продукції / напівфабрикату', bold:true, size:20, color:'000000'})]}),
         ]}),
-        cell('Дата:', {width:1600, color:'5A5A5A', size:18}),
-        cell(fmtDate(a.date), {width:2100, size:19}),
+        cell('Дата:', {width:1850, color:'5A5A5A', size:18}),
+        cell(fmtDate(a.date), {width:2430, size:19}),
       ]}),
-      new TableRow({children:[cell('№ повідомлення:', {width:1600, color:'5A5A5A', size:18}), cell(a.number||'—', {width:2100, size:19})]}),
-      new TableRow({children:[cell('Сторінка / Сторінок:', {width:1600, color:'5A5A5A', size:18}), cell('Сторінка 1 з 1', {width:2100, size:19})]}),
+      new TableRow({children:[cell('№ повідомлення:', {width:1850, color:'5A5A5A', size:18}), cell(a.number||'—', {width:2430, size:19})]}),
+      new TableRow({children:[cell('Сторінка / Сторінок:', {width:1850, color:'5A5A5A', size:18}), cell('Сторінка 1 з 1', {width:2430, size:19})]}),
     ],
   }));
   children.push(new Paragraph({text:''}));
@@ -2238,7 +2238,7 @@ async function downloadActDOCX(record){
       properties: {
         page: {
           size: { width: 11906, height: 16838 }, // A4 in twips
-          margin: { top: 1000, bottom: 1000, left: 1440, right: 1440 },
+          margin: { top: 700, bottom: 700, left: 720, right: 720 },
         },
       },
       footers: { default: footer },
