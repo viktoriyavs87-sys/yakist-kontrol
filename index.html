@@ -2009,7 +2009,7 @@ async function downloadActDOCX(record){
   const {
     Document, Paragraph, Table, TableRow, TableCell, TextRun, ImageRun, Packer,
     WidthType, AlignmentType, ShadingType, VerticalAlign, BorderStyle,
-    Footer, TabStopType, TabStopPosition
+    Footer, TabStopType, TabStopPosition, TableLayoutType
   } = window.docx;
 
   const a = record.act || {};
@@ -2046,7 +2046,7 @@ async function downloadActDOCX(record){
     })],
   });
   const sectionTitleEl = (num, text)=> new Table({
-    width:{size:100, type:WidthType.PERCENTAGE},
+    width:{size:100, type:WidthType.PERCENTAGE}, layout: TableLayoutType.FIXED,
     columnWidths:[9000],
     rows:[new TableRow({children:[
       new TableCell({
@@ -2064,7 +2064,8 @@ async function downloadActDOCX(record){
   const checkboxGridRow = (items, selectedIds)=>{
     const w = Math.floor(9000/items.length);
     return new Table({
-      width:{size:100, type:WidthType.PERCENTAGE},
+      width:{size:100, type:WidthType.PERCENTAGE}, layout: TableLayoutType.FIXED,
+      columnWidths: items.map(()=>w),
       rows:[
         new TableRow({children: items.map(it=>cell(it.label, {width:w, size:20, borders:ROW_BORDERS}))}),
         new TableRow({children: items.map(it=>checkboxCell(selectedIds.includes(it.id), w, ROW_BORDERS))}),
@@ -2083,10 +2084,10 @@ async function downloadActDOCX(record){
         checkboxCell(right[i]?selectedIds.includes(right[i].id):false, 500, ROW_BORDERS),
       ]}));
     }
-    return new Table({width:{size:100,type:WidthType.PERCENTAGE}, rows});
+    return new Table({width:{size:100,type:WidthType.PERCENTAGE}, layout: TableLayoutType.FIXED, columnWidths:[4000,500,4000,500], rows});
   };
   const infoTableEl = (rows)=> new Table({
-    width:{size:100, type:WidthType.PERCENTAGE},
+    width:{size:100, type:WidthType.PERCENTAGE}, layout: TableLayoutType.FIXED,
     rows: rows.map(([label,value])=>new TableRow({children:[
       cell(label, {width:3000, color:'64645F', size:20}),
       cell(value||'—', {width:6000, size:20}),
@@ -2097,20 +2098,21 @@ async function downloadActDOCX(record){
   const infoTableWideEl = (pairs)=>{
     const w = Math.floor(9000/pairs.length);
     return new Table({
-      width:{size:100, type:WidthType.PERCENTAGE},
+      width:{size:100, type:WidthType.PERCENTAGE}, layout: TableLayoutType.FIXED,
+      columnWidths: pairs.map(()=>w),
       rows:[
-        new TableRow({children: pairs.map(([label])=>cell(label, {width:w, fill:'F0F2F0', size:14}))}),
+        new TableRow({children: pairs.map(([label])=>cell(label, {width:w, fill:'F0F2F0', size:16}))}),
         new TableRow({children: pairs.map(([,value])=>cell(value||'—', {width:w, size:19}))}),
       ],
     });
   };
-  const textBoxEl = (value)=> new Table({width:{size:100,type:WidthType.PERCENTAGE}, rows:[new TableRow({children:[cell(value||'—',{size:20})]})]});
+  const textBoxEl = (value)=> new Table({width:{size:100,type:WidthType.PERCENTAGE}, layout: TableLayoutType.FIXED, columnWidths:[9000], rows:[new TableRow({children:[cell(value||'—',{size:20})]})]});
   const signRowEl = (position, name, extraLabel, extraVal)=>{
     const head = ['Посада','ПІБ','Підпис'];
     const body = [position||'—', name||'—', ''];
     if(extraLabel){ head.push(extraLabel); body.push(extraVal); }
     const w = Math.floor(9000/head.length);
-    return new Table({width:{size:100,type:WidthType.PERCENTAGE}, rows:[
+    return new Table({width:{size:100,type:WidthType.PERCENTAGE}, layout: TableLayoutType.FIXED, columnWidths: head.map(()=>w), rows:[
       new TableRow({children: head.map(h=>cell(h,{width:w, fill:'F0F2F0', bold:true, size:20}))}),
       new TableRow({children: body.map(b=>cell(b,{width:w, size:20}))}),
     ]});
@@ -2121,7 +2123,8 @@ async function downloadActDOCX(record){
 
   const children = [];
   children.push(new Table({
-    width:{size:100, type:WidthType.PERCENTAGE},
+    width:{size:100, type:WidthType.PERCENTAGE}, layout: TableLayoutType.FIXED,
+    columnWidths:[1500,3800,1600,2100],
     rows:[
       new TableRow({children:[
         new TableCell({rowSpan:3, width:{size:1500,type:WidthType.DXA}, borders:ALL_BORDERS, margins:CELL_MARGIN, verticalAlign:VerticalAlign.CENTER, children:[
@@ -2132,11 +2135,11 @@ async function downloadActDOCX(record){
           new Paragraph({alignment:AlignmentType.CENTER, children:[new TextRun({text:'QMS ISO 9001', size:20, color:'000000'})]}),
           new Paragraph({alignment:AlignmentType.CENTER, spacing:{before:40}, children:[new TextRun({text:'Повідомлення про невідповідність продукції / напівфабрикату', bold:true, size:20, color:'000000'})]}),
         ]}),
-        cell('Дата:', {width:1600, color:'5A5A5A', size:16}),
-        cell(fmtDate(a.date), {width:2100, size:17}),
+        cell('Дата:', {width:1600, color:'5A5A5A', size:18}),
+        cell(fmtDate(a.date), {width:2100, size:19}),
       ]}),
-      new TableRow({children:[cell('№ повідомлення:', {width:1600, color:'5A5A5A', size:16}), cell(a.number||'—', {width:2100, size:17})]}),
-      new TableRow({children:[cell('Сторінка / Сторінок:', {width:1600, color:'5A5A5A', size:16}), cell('Сторінка 1 з 1', {width:2100, size:17})]}),
+      new TableRow({children:[cell('№ повідомлення:', {width:1600, color:'5A5A5A', size:18}), cell(a.number||'—', {width:2100, size:19})]}),
+      new TableRow({children:[cell('Сторінка / Сторінок:', {width:1600, color:'5A5A5A', size:18}), cell('Сторінка 1 з 1', {width:2100, size:19})]}),
     ],
   }));
   children.push(new Paragraph({text:''}));
