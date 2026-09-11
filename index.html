@@ -685,7 +685,7 @@ function renderLogin(){
         <div class="login-sub">Оберіть дільницю</div>
         <div class="eng-list">
           ${sections.map(s=>`<button class="eng-item" data-pick-section="${esc(s)}"><span>Дільниця ${esc(s)}</span><span>→</span></button>`).join('')}
-          <button class="eng-item" data-pick-admin="1"><span>Я — начальник ВТК</span><span>→</span></button>
+          <button class="eng-item" data-pick-admin="1"><span>Начальник ВТК</span><span>→</span></button>
         </div>
         ${!hasAdmin ? `<button class="back-link" data-action="bootstrap-admin" style="margin-top:16px;justify-content:center;width:100%;">Ще не додано жодного адміністратора — налаштувати</button>` : ''}
       </div>
