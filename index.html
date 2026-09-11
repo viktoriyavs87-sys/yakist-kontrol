@@ -383,16 +383,6 @@ function displayMeasurements(r){
 }
 
 function controlTypeLabel(t){ return t==='pf' ? 'Проміжний контроль фасування ГП' : 'Готова продукція'; }
-function isKitProduct(p){
-  if(!p) return false;
-  if(p.isKit===true) return true;
-  if(p.isKit===false) return false;
-  const name = p.name || '';
-  if (/набір|набор/i.test(name)) return true;
-  // No volume/weight/piece-count unit anywhere in the name → treat as a kit/bundle
-  const hasUnit = /\d+[.,]?\d*\s*(мл|л|г|кг|шт)\b/i.test(name);
-  return !hasUnit;
-}
 
 // Appearance/packaging checks required before saving a record — different
 // checklist per control type, since проміжний контроль checks the semi-finished
@@ -496,7 +486,7 @@ function rebuildCatalogProducts(){
   const overrides = state.catalogMeta.productOverrides || {};
   const merged = SEED_PRODUCTS.map(p=>{
     const o = overrides[p.code];
-    return o ? Object.assign({}, p, {normValue:o.normValue, normUnit:o.normUnit, isKit:o.isKit}) : p;
+    return o ? Object.assign({}, p, {normValue:o.normValue, normUnit:o.normUnit}) : p;
   }).concat(state.catalogMeta.customProducts || []);
   const engineers = (state.catalogMeta.engineers || []).map(e=>
     (e.role!=='admin' && !e.section) ? Object.assign({}, e, {section:'27'}) : e
@@ -1043,8 +1033,10 @@ function newFormState(controlType){
     // since a ГП of one brand can use a напівфабрикат from a different brand.
     gpProducts:[], gpProdQuery:'',
     semiProducts:[], semiProdQuery:'',
-    // If the chosen готова продукція is a "набір" (kit), the second picker below
-    // switches from напівфабрикат to the individual готова продукція items inside it.
+    // Manual checkbox — engineer marks it themself if the chosen готова продукція
+    // is a "набір" (kit). When checked, the second picker below switches from
+    // напівфабрикат to the individual готова продукція items inside the kit.
+    isKitMode:false,
     kitItems:[], kitItemQuery:'',
     batch:'', expiry:'',
     ops:[], // 'rozlyv','etyketuvannya','ruchne_fasuvannya','datuvannya','prosochennya','pakuvannya'
@@ -1136,18 +1128,24 @@ function renderForm(){
       <div class="combo-list" id="f-tm-list" style="display:none;"></div>
     </div>
     ${f.controlType==='pf' ? (()=>{
-      const isKit = f.gpProducts.some(isKitProduct);
+      const isKit = f.isKitMode;
       return `
     <div class="field">
       <label>Готова продукція ${!f.trademark?'<span style="font-weight:400;color:var(--ink-soft);">(спочатку оберіть торгову марку)</span>':'<span style="font-weight:400;color:var(--ink-soft);">(можна кілька — якщо це набір)</span>'}</label>
       ${f.gpProducts.length ? `<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;">
-        ${f.gpProducts.map((p,i)=>`<div class="list-item" style="padding:8px 10px;"><span style="font-size:13px;">${esc(p.name)}${isKitProduct(p)?' <span class="hint" style="display:inline;">(набір)</span>':''}</span><button class="btn btn-sm btn-danger" data-rm-gpprod="${i}">×</button></div>`).join('')}
+        ${f.gpProducts.map((p,i)=>`<div class="list-item" style="padding:8px 10px;"><span style="font-size:13px;">${esc(p.name)}</span><button class="btn btn-sm btn-danger" data-rm-gpprod="${i}">×</button></div>`).join('')}
       </div>` : ''}
       ${!isKit ? `
       <div class="combo">
         <input type="text" class="combo-input" id="f-gpprod-input" placeholder="Додати позицію готової продукції…" value="${esc(f.gpProdQuery)}" ${!f.trademark?'disabled':''} autocomplete="off">
         <div class="combo-list" id="f-gpprod-list" style="display:none;"></div>
       </div>
+      ` : ''}
+      ${f.gpProducts.length ? `
+      <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-weight:400;cursor:pointer;">
+        <input type="checkbox" id="f-iskit-check" ${isKit?'checked':''} style="width:18px;height:18px;">
+        <span>Це набір (комплект із кількох товарів)</span>
+      </label>
       ` : ''}
     </div>
     ${isKit ? `
@@ -2368,7 +2366,7 @@ function renderAdminProducts(){
       ${shown.map(p=>`
         <div class="list-item" data-edit-product="${esc(p.code)}" style="cursor:pointer;">
           <div>
-            <div class="li-name">${esc(p.name)}${isKitProduct(p)?' <span class="badge note">набір</span>':''}</div>
+            <div class="li-name">${esc(p.name)}</div>
             <div class="li-sub">${esc(p.trademark)} · ${controlTypeLabel(p.type)} · код ${esc(p.code)}${p.normValue?` · норма ${esc(p.normValue)} ${esc(p.normUnit||'')}`:''}${p.status?` · ${esc(p.status)}`:''}</div>
           </div>
           <span style="color:var(--ink-soft);">✎</span>
@@ -2524,11 +2522,11 @@ function attachFormEvents(){
       const q = gpProdInput.value.trim().toLowerCase();
       const already = new Set(f.gpProducts.map(p=>p.code));
       const opts = productsForType('gp').filter(p=>p.trademark===f.trademark && !already.has(p.code) && (p.name.toLowerCase().includes(q)||p.code.includes(q)));
-      renderComboList('f-gpprod-list', opts.slice(0,40).map(p=>({value:p.code,label:p.name,sub:'код '+p.code+(isKitProduct(p)?' · набір':'')})), 'Нічого не знайдено');
+      renderComboList('f-gpprod-list', opts.slice(0,40).map(p=>({value:p.code,label:p.name,sub:'код '+p.code})), 'Нічого не знайдено');
       document.querySelectorAll('#f-gpprod-list .combo-item').forEach(it=>{
         it.onclick = ()=>{
           const p = state.catalog.products.find(x=>x.code===it.dataset.val && x.type==='gp');
-          f.gpProducts.push({code:p.code, name:p.name, trademark:p.trademark, isKit:isKitProduct(p)});
+          f.gpProducts.push({code:p.code, name:p.name, trademark:p.trademark});
           f.gpProdQuery='';
           gpProdInput.value='';
           hideCombo('f-gpprod-list'); render();
@@ -2539,8 +2537,14 @@ function attachFormEvents(){
     gpProdInput.onfocus = showGpProdList;
     gpProdInput.onblur = ()=>setTimeout(()=>hideCombo('f-gpprod-list'),150);
   }
+  const isKitCheck = document.getElementById('f-iskit-check');
+  if(isKitCheck) isKitCheck.onchange = ()=>{ f.isKitMode = isKitCheck.checked; render(); };
   document.querySelectorAll('[data-rm-gpprod]').forEach(b=>{
-    b.onclick = ()=>{ f.gpProducts.splice(+b.dataset.rmGpprod,1); render(); };
+    b.onclick = ()=>{
+      f.gpProducts.splice(+b.dataset.rmGpprod,1);
+      if(f.gpProducts.length===0){ f.isKitMode=false; f.kitItems=[]; }
+      render();
+    };
   });
 
   // Напівфабрикат — multi-select, searched across the WHOLE pf catalog
@@ -2710,6 +2714,7 @@ function attachFormEvents(){
         f.batch = rec.batch; f.expiry = rec.expiry;
         if(rec.controlType==='pf'){
           f.gpProducts = rec.gpProductsList ? rec.gpProductsList.slice() : (rec.gpProductName ? [{code:rec.gpProductCode, name:rec.gpProductName, trademark:rec.trademark}] : []);
+          f.isKitMode = !!rec.isKit;
           const restoredItems = rec.semiProductsList ? rec.semiProductsList.slice() : (rec.productName ? [{code:rec.productCode, name:rec.productName, trademark:rec.trademark}] : []);
           if(rec.isKit){ f.kitItems = restoredItems; f.semiProducts = []; }
           else { f.semiProducts = restoredItems; f.kitItems = []; }
@@ -2805,7 +2810,7 @@ function attachFormEvents(){
   document.getElementById('f-save').onclick = async ()=>{
     if(!f.section){ showToast('Оберіть дільницю','⚠️'); return; }
     if(!f.trademark){ showToast('Оберіть торгову марку','⚠️'); return; }
-    const isKit = f.controlType==='pf' && f.gpProducts.some(isKitProduct);
+    const isKit = f.controlType==='pf' && f.isKitMode;
     if(f.controlType==='pf' && f.gpProducts.length===0){ showToast('Оберіть готову продукцію','⚠️'); return; }
     if(f.controlType==='pf' && isKit && f.kitItems.length===0){ showToast('Оберіть готову продукцію, з якої складається набір','⚠️'); return; }
     if(f.controlType==='pf' && !isKit && f.semiProducts.length===0){ showToast('Оберіть напівфабрикат','⚠️'); return; }
@@ -3049,14 +3054,10 @@ function editProductPrompt(code){
   if(nv===null) return;
   const nu = prompt(`Одиниця (г / кг / мл / л):`, p.normUnit||'г');
   if(nu===null) return;
-  const kitDefault = p.isKit===true ? 'так' : 'ні';
-  const kitAns = prompt(`Це набір (комплект із кількох товарів)?\nНапишіть "так" або "ні".`, kitDefault);
-  if(kitAns===null) return;
-  const isKit = /^\s*так/i.test(kitAns);
   state.catalogMeta.productOverrides = state.catalogMeta.productOverrides || {};
-  state.catalogMeta.productOverrides[code] = {normValue: nv.trim(), normUnit: nu.trim(), isKit};
+  state.catalogMeta.productOverrides[code] = {normValue: nv.trim(), normUnit: nu.trim()};
   rebuildCatalogProducts();
-  saveCatalog().then(()=>{ showToast('Збережено','✅'); render(); });
+  saveCatalog().then(()=>{ showToast('Норму збережено','✅'); render(); });
 }
 
 function addProductPrompt(){
