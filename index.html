@@ -1134,10 +1134,12 @@ function renderForm(){
       ${f.gpProducts.length ? `<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;">
         ${f.gpProducts.map((p,i)=>`<div class="list-item" style="padding:8px 10px;"><span style="font-size:13px;">${esc(p.name)}${isKitProduct(p)?' <span class="hint" style="display:inline;">(набір)</span>':''}</span><button class="btn btn-sm btn-danger" data-rm-gpprod="${i}">×</button></div>`).join('')}
       </div>` : ''}
+      ${!isKit ? `
       <div class="combo">
         <input type="text" class="combo-input" id="f-gpprod-input" placeholder="Додати позицію готової продукції…" value="${esc(f.gpProdQuery)}" ${!f.trademark?'disabled':''} autocomplete="off">
         <div class="combo-list" id="f-gpprod-list" style="display:none;"></div>
       </div>
+      ` : ''}
     </div>
     ${isKit ? `
     <div class="field">
