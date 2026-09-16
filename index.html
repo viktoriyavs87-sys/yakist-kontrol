@@ -381,6 +381,16 @@ function displayMeasurements(r){
   if(r.netMeasurements && r.netMeasurements.length) return r.netMeasurements.join('; ');
   return (r.measurements||[]).filter(m=>m!=='').join('; ');
 }
+// In reports, проміжний контроль records should lead with the готова продукція
+// name (what's being packaged), not the напівфабрикат used to make it.
+function displayPrimaryName(r){
+  if(r.controlType==='pf' && r.gpProductName) return r.gpProductName;
+  return r.productName;
+}
+function displaySecondaryName(r){
+  if(r.controlType==='pf' && r.gpProductName) return r.productName; // напівфабрикат(и)
+  return '';
+}
 
 function controlTypeLabel(t){ return t==='pf' ? 'Проміжний контроль фасування ГП' : 'Готова продукція'; }
 
@@ -1638,7 +1648,7 @@ function renderReport(){
     </div>
     ${acts>0 ? `<div class="tolerance-hint show fail" style="margin-bottom:14px;">⚠️ Складено актів невідповідності: ${acts}</div>` : ''}
     <div style="display:flex;gap:8px;flex-wrap:wrap;">
-      <button class="btn btn-secondary" id="rep-xlsx" ${recs.length===0?'disabled':''}>⬇️ Excel</button>
+      ${isAdmin ? `<button class="btn btn-secondary" id="rep-xlsx" ${recs.length===0?'disabled':''}>⬇️ Excel</button>` : ''}
       <button class="btn btn-secondary" id="rep-pdf" ${recs.length===0?'disabled':''}>⬇️ PDF</button>
       <button class="btn btn-secondary" id="rep-copy" ${recs.length===0?'disabled':''}>📋 Копіювати текст</button>
     </div>
@@ -1661,7 +1671,7 @@ function renderReport(){
           ${isAdmin?`<td>${esc(recordSection(r))}</td>`:''}
           <td>${esc(r.engineer)}</td>
           <td>${esc(r.trademark)}</td>
-          <td>${esc(r.productName)}${r.controlType==='pf'&&r.gpProductName?`<br><span class="hint" style="display:inline;">для: ${esc(r.gpProductName)}</span>`:''}${r.continuesFrom?' <span class="hint" style="display:inline;">↳ продовж.</span>':''}</td>
+          <td>${esc(displayPrimaryName(r))}${displaySecondaryName(r)?`<br><span class="hint" style="display:inline;">напівфабрикат: ${esc(displaySecondaryName(r))}</span>`:''}${r.continuesFrom?' <span class="hint" style="display:inline;">↳ продовж.</span>':''}</td>
           <td>${esc(fmtDate(r.batch))}</td>
           <td>${esc(fmtDate(r.expiry))}</td>
           <td>${esc(opsLabel(r.ops))}</td>
@@ -1686,8 +1696,8 @@ function buildReportText(recs, date){
   const isGp = state.reportControlType==='gp';
   let lines = [`ЗВІТ КОНТРОЛЮ ЯКОСТІ — ${isGp?'ГОТОВА ПРОДУКЦІЯ':'ПРОМІЖНИЙ КОНТРОЛЬ'} — ${fmtDate(date)}`, ''];
   recs.forEach((r,i)=>{
-    lines.push(`${i+1}. [${r.time}] Дільниця ${recordSection(r)} — ${r.trademark} ${r.productName}`);
-    if(!isGp && r.gpProductName) lines.push(`   Для готової продукції: ${r.gpProductName}`);
+    lines.push(`${i+1}. [${r.time}] Дільниця ${recordSection(r)} — ${r.trademark} ${displayPrimaryName(r)}`);
+    if(displaySecondaryName(r)) lines.push(`   Напівфабрикат: ${displaySecondaryName(r)}`);
     lines.push(`   Інженер: ${r.engineer} | Партія: ${fmtDate(r.batch)} | Термін: ${fmtDate(r.expiry)}`);
     lines.push(`   Операція: ${opsLabel(r.ops)||'—'} | Норма: ${r.normValue} ${r.normUnit} (${r.netBrutto==='netto'?'нетто':'брутто'})`);
     lines.push(`   Заміри (нетто): ${displayMeasurements(r)||'—'}`);
@@ -1724,7 +1734,7 @@ async function exportXLSX(recs, date){
   const rows = recs.map(r=>{
     const row = {
       'Час': r.time, 'Дільниця': recordSection(r), 'Інженер': r.engineer,
-      'Торгова марка': r.trademark, 'Найменування': r.productName, 'Код': r.productCode,
+      'Торгова марка': r.trademark, 'Найменування': displayPrimaryName(r), 'Код': r.productCode,
       'Партія': fmtDate(r.batch), 'Термін придатності': fmtDate(r.expiry),
       'Операція': opsLabel(r.ops),
       'Норма': r.normValue, 'Одиниця': r.normUnit,
@@ -1733,7 +1743,7 @@ async function exportXLSX(recs, date){
       'Відповідність': r.compliance==='ok'?'Відповідає':r.compliance==='note'?'Із зауваженням':'Не відповідає',
     };
     if(!isGp){
-      row['Для готової продукції'] = r.gpProductName||'';
+      row['Напівфабрикат'] = displaySecondaryName(r);
     }
     row['Зовнішній вигляд'] = appearanceLabel(r.appearanceOverall);
     row['Дозвіл на відхилення'] = r.permit ? `№${r.permit.number} від ${fmtDate(r.permit.date)} — ${r.permit.desc||''}` : '';
@@ -1772,7 +1782,7 @@ async function exportPDF(recs, date){
   const head = [['Час','Дільниця','Інженер','ТМ','Найменування','Партія','Термін','Операція','Норма','Заміри','Н/Б','Відповідність',
     'Зовн. вигляд','Дозвіл','Акт', ...(isGp?[]:['Обладнання']),'Зауваження']];
   const body = recs.map(r=>[
-    r.time, recordSection(r), r.engineer, r.trademark, r.productName,
+    r.time, recordSection(r), r.engineer, r.trademark, displayPrimaryName(r),
     fmtDate(r.batch), fmtDate(r.expiry),
     opsLabel(r.ops),
     `${r.normValue} ${r.normUnit}`,
