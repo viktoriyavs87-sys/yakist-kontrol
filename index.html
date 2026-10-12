@@ -2442,7 +2442,7 @@ function renderAdminEngineers(){
   <div class="card">
     <h2>Список (${list.length})</h2>
     ${list.length===0?`<div class="empty-state"><span class="eic">👤</span>Список ще порожній.</div>`:
-      list.map((e,i)=>`<div class="list-item"><div><div class="li-name">${esc(e.name)} ${e.role==='admin'?'<span class="badge ok" style="margin-left:6px;">Адмін</span>':''}</div><div class="li-sub mono">PIN: ${esc(e.pin)}${e.section?` · Дільниця ${esc(e.section)}`:''}</div></div><button class="btn btn-danger btn-sm" data-rm-eng="${i}">Видалити</button></div>`).join('')}
+      list.map((e,i)=>`<div class="list-item"><div><div class="li-name">${esc(e.name)} ${e.role==='admin'?'<span class="badge ok" style="margin-left:6px;">Адмін</span>':''}</div><div class="li-sub mono">PIN: ${esc(e.pin)}${e.section?` · Дільниця ${esc(e.section)}`:''}</div></div><div style="display:flex;gap:6px;"><button class="btn btn-secondary btn-sm" data-edit-eng="${i}">Змінити</button><button class="btn btn-danger btn-sm" data-rm-eng="${i}">Видалити</button></div></div>`).join('')}
   </div>
   ${state.session && state.session.name==='Адміністратор' ? `<button class="btn btn-secondary btn-block" data-action="finish-bootstrap">Готово — перейти до входу</button>`:''}
   `;
@@ -3021,6 +3021,26 @@ function attachAdminEvents(){
       rebuildCatalogProducts();
       await saveCatalog(); render();
     };
+    document.querySelectorAll('[data-edit-eng]').forEach(b=>b.onclick=async()=>{
+      const e = state.catalogMeta.engineers[+b.dataset.editEng];
+      if(!e) return;
+      const name = prompt('ПІБ (формат: Прізвище Ім\'я):', e.name);
+      if(name===null) return;
+      if(!name.trim()){ showToast('ПІБ не може бути порожнім','⚠️'); return; }
+      const pin = prompt('PIN (4 цифри):', e.pin);
+      if(pin===null) return;
+      if(!/^\d{4}$/.test(pin.trim())){ showToast('PIN має складатись з 4 цифр','⚠️'); return; }
+      let section = e.section||'';
+      if(e.role!=='admin'){
+        const s = prompt('Дільниця:', section);
+        if(s===null) return;
+        if(!s.trim()){ showToast('Вкажіть дільницю','⚠️'); return; }
+        section = s.trim();
+      }
+      e.name = name.trim(); e.pin = pin.trim(); e.section = section;
+      rebuildCatalogProducts();
+      await saveCatalog(); showToast('Збережено','✅'); render();
+    });
     document.querySelectorAll('[data-rm-eng]').forEach(b=>b.onclick=async()=>{
       state.catalogMeta.engineers.splice(+b.dataset.rmEng,1);
       rebuildCatalogProducts();
