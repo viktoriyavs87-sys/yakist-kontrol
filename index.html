@@ -969,7 +969,7 @@ function renderHome(){
   const mine = state.records.filter(r=>r.date===today && r.engineer===state.session.name);
   const fails = mine.filter(r=>r.compliance==='fail').length;
   return `
-    <div class="screen-head"><h1>Доброго дня, ${esc(state.session.name.split(' ')[0])}</h1></div>
+    <div class="screen-head"><h1>Доброго дня, ${esc((()=>{const p=String(state.session.name||'').trim().split(/\s+/);return p.length>1?p[1]:p[0];})())}</h1></div>
     <div class="tiles">
       <button class="tile accent" data-goto="typepick"><span class="icon">📝</span><span class="tlabel">Новий контроль</span><span class="tsub">Проміжний або готова продукція</span></button>
       <button class="tile" data-goto="report"><span class="icon">📊</span><span class="tlabel">Звіт за зміну</span><span class="tsub">Сформувати та вивантажити</span></button>
