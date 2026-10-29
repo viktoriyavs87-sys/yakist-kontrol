@@ -210,6 +210,7 @@ textarea{resize:vertical;min-height:64px;}
 .tolerance-hint.ok{background:var(--green-tint);color:var(--green);}
 .tolerance-hint.fail{background:var(--red-tint);color:var(--red);}
 .tolerance-hint.warn{background:#fbf3dc;color:#7a5a00;}
+@media print{.no-print{display:none !important;}}
 
 /* Table (report) */
 .table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px;}
@@ -1749,14 +1750,14 @@ function renderReport(){
     <div class="table-wrap">
       <table>
         <thead><tr>
-          <th></th><th>Час</th>${isAdmin?'<th>Дільниця</th>':''}<th>Інженер</th><th>ТМ</th><th>Найменування</th><th>Партія</th><th>Термін</th>
+          <th class="no-print"></th><th>Час</th>${isAdmin?'<th>Дільниця</th>':''}<th>Інженер</th><th>ТМ</th><th>Найменування</th><th>Партія</th><th>Термін</th>
           <th>Операція</th><th>Норма</th><th>Заміри</th><th>Н/Б</th><th>Відповідність</th>
           <th>Зовн. вигляд</th><th>Дозвіл</th><th>Акт</th>${!isGp?'<th>Обладнання</th>':''}
           <th>Зауваження</th>
         </tr></thead>
         <tbody>
         ${recs.map(r=>`<tr>
-          <td>${canEditRecord(r)?`<button class="btn btn-sm btn-secondary" data-edit-rec="${esc(r.id)}" style="white-space:nowrap;">✏️ Редагувати</button>`:''}</td>
+          <td class="no-print">${canEditRecord(r)?`<button class="btn btn-sm btn-secondary" data-edit-rec="${esc(r.id)}" style="white-space:nowrap;">✏️ Редагувати</button>`:''}</td>
           <td>${esc(r.time)}</td>
           ${isAdmin?`<td>${esc(recordSection(r))}</td>`:''}
           <td>${esc(r.engineer)}</td>
@@ -1773,7 +1774,7 @@ function renderReport(){
           <td>${r.permit?esc(r.permit.number||'так'):'—'}</td>
           <td>${r.act?`<button class="btn btn-sm btn-danger" data-download-act="${esc(r.id)}">⬇️ №${esc(r.act.number||'')}</button>`:'—'}</td>
           ${!isGp?`<td>${esc(r.equipment||'—')}</td>`:''}
-          <td>${esc(r.comment||'—')}${r.editedAt?`<br><span class="hint" style="display:inline;">✏️ виправлено</span>`:''}</td>
+          <td>${esc(r.comment||'—')}${(r.editedAt && isAdmin)?`<br><span class="hint no-print" style="display:inline;">✏️ виправлено</span>`:''}</td>
         </tr>`).join('')}
         </tbody>
       </table>
