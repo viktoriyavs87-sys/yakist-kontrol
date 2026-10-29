@@ -209,6 +209,7 @@ textarea{resize:vertical;min-height:64px;}
 .tolerance-hint.show{display:block;}
 .tolerance-hint.ok{background:var(--green-tint);color:var(--green);}
 .tolerance-hint.fail{background:var(--red-tint);color:var(--red);}
+.tolerance-hint.warn{background:#fbf3dc;color:#7a5a00;}
 
 /* Table (report) */
 .table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px;}
@@ -559,6 +560,18 @@ async function saveNewRecord(record){
   }catch(e){
     console.error('save record failed', e);
     showToast('Не вдалося зберегти запис: '+(e && e.message ? e.message : 'помилка мережі. Спробуйте ще раз.'), '⚠️', 8000);
+    return false;
+  }
+}
+
+async function saveEditedRecord(id, record){
+  if(!firebaseReady){ showToast('Немає з’єднання з базою даних. Зміни не збережено.', '⚠️', 7000); return false; }
+  try{
+    await setDoc(doc(db, RECORDS_COLLECTION, id), record);
+    return true;
+  }catch(e){
+    console.error('edit record failed', e);
+    showToast('Не вдалося зберегти зміни: '+(e && e.message ? e.message : 'помилка мережі. Спробуйте ще раз.'), '⚠️', 8000);
     return false;
   }
 }
@@ -1082,6 +1095,80 @@ function newFormState(controlType){
   };
 }
 
+
+/* ---- editing an already saved record ---- */
+function canEditRecord(r){
+  if(!state.session) return false;
+  return state.session.role==='admin' || r.engineer===state.session.name;
+}
+function itemsFromStrings(codes, names, trademark, type){
+  const cs = String(codes||'').split('; ').filter(Boolean);
+  const ns = String(names||'').split('; ').filter(Boolean);
+  const n = Math.max(cs.length, ns.length);
+  const out = [];
+  for(let i=0;i<n;i++){
+    const code = cs[i]||'';
+    const found = code ? (state.catalog.products||[]).find(p=>p.code===code) : null;
+    out.push(found || {code, name: ns[i]||'', trademark: trademark||'', type: type||'', normValue:'', normUnit:''});
+  }
+  return out;
+}
+function formFromRecord(r){
+  const f = newFormState(r.controlType);
+  f.editId = r.id;
+  f.editTime = r.time;
+  f.editEngineer = r.engineer;
+  f.editOrigNorm = String(r.normValue==null?'':r.normValue) + ' ' + (r.normUnit||'');
+  f.date = r.date;
+  f.section = recordSection(r);
+  f.trademark = r.trademark||'';
+  f.productCode = r.productCode||'';
+  f.productName = r.productName||'';
+  f.batch = r.batch||''; f.expiry = r.expiry||'';
+  f.ops = (r.ops||[]).slice();
+  f.normValue = r.normValue==null?'':r.normValue;
+  f.normUnit = r.normUnit||'г';
+  f.netBrutto = r.netBrutto||'netto';
+  f.tareWeight = r.tareWeight==null?'':r.tareWeight;
+  f.measurements = (r.measurements && r.measurements.length) ? r.measurements.slice() : [''];
+  f.compliance = r.compliance||'';
+  f.equipment = r.equipment||'';
+  f.comment = r.comment||'';
+  if(r.controlType==='pf'){
+    f.isKitMode = !!r.isKit;
+    f.gpProducts = (r.gpProductsList && r.gpProductsList.length) ? r.gpProductsList.slice()
+      : itemsFromStrings(r.gpProductCode, r.gpProductName, r.trademark, 'gp');
+    const semi = (r.semiProductsList && r.semiProductsList.length) ? r.semiProductsList.slice()
+      : itemsFromStrings(r.productCode, r.productName, r.trademark, r.isKit?'gp':'pf');
+    if(f.isKitMode) f.kitItems = semi; else f.semiProducts = semi;
+  } else {
+    f.continuesFrom = r.continuesFrom||'';
+    f.continuationNote = r.continuationNote||'';
+  }
+  f.appearanceChecks = Object.assign({}, r.appearanceChecks||{});
+  if(r.permit){
+    f.permitEnabled = true;
+    f.permitNumber = r.permit.number||''; f.permitDate = r.permit.date||''; f.permitDesc = r.permit.desc||'';
+  }
+  if(r.act){
+    const a = r.act;
+    f.actNumber = a.number||''; f.actDate = a.date||todayISO();
+    f.actDiscoveryStage = a.discoveryStage||'acceptance';
+    f.actSpecNumber = a.specNumber||''; f.actSemiDate = a.semiDate||'';
+    f.actTotalQty = a.totalQty||''; f.actTotalQtyUnit = a.totalQtyUnit||'шт';
+    f.actDefectQty = a.defectQty||''; f.actDefectQtyUnit = a.defectQtyUnit||'шт';
+    f.actNonComplianceTypes = (a.nonComplianceTypes||[]).slice(); f.actNonComplianceOther = a.nonComplianceOther||'';
+    f.actDesc = a.desc||'';
+    f.actCauseCategories = (a.causeCategories||[]).slice(); f.actCauseDetail = a.causeDetail||'';
+    f.actResponsibleName = a.responsibleName||''; f.actResponsiblePosition = a.responsiblePosition||'Начальник виробництва';
+    f.actStatusOptions = (a.statusOptions||[]).slice();
+    f.actActions = a.actions||'';
+    f.actPhotos = (a.photos||[]).slice();
+    f.editActAssignedBy = a.assignedBy||'';
+  }
+  return f;
+}
+
 function productsForType(type){
   return (state.catalog.products||[]).filter(p=>p.type===type);
 }
@@ -1101,9 +1188,10 @@ function renderForm(){
 
   return `
   <div class="screen-head">
-    <button class="backbtn" data-goto="typepick">←</button>
-    <h1>Новий запис · ${typeLabel}</h1>
+    <button class="backbtn" data-goto="${f.editId?'report':'typepick'}">←</button>
+    <h1>${f.editId?'Редагування запису':'Новий запис'} · ${typeLabel}</h1>
   </div>
+  ${f.editId ? `<div class="tolerance-hint show warn" style="margin-bottom:14px;">✏️ Ви редагуєте запис від ${esc(fmtDate(f.date))}, ${esc(f.editTime||'')} (інженер: ${esc(f.editEngineer||'')}). Після збереження запис у звіті буде замінено виправленим.${(String(f.normValue)+' '+f.normUnit)!==f.editOrigNorm ? '<br><b>⚠️ Норма змінилась — перевірте заміри та оберіть відповідність знову.</b>' : ''}</div>` : ''}
 
   <div class="card">
     <h2>Загальні дані</h2>
@@ -1114,7 +1202,7 @@ function renderForm(){
       </div>
       <div class="field">
         <label>ПІБ інженера</label>
-        <input type="text" value="${esc(state.session.name)}" disabled style="background:#f4f2ec;color:var(--ink-soft);">
+        <input type="text" value="${esc(f.editId?f.editEngineer:state.session.name)}" disabled style="background:#f4f2ec;color:var(--ink-soft);">
       </div>
     </div>
     <div class="field">
@@ -1288,7 +1376,8 @@ function renderForm(){
     </div>
   </div>
 
-  <button class="btn btn-primary btn-block" id="f-save" style="padding:14px;font-size:15px;">Зберегти запис</button>
+  <button class="btn btn-primary btn-block" id="f-save" style="padding:14px;font-size:15px;">${f.editId?'Зберегти зміни':'Зберегти запис'}</button>
+  ${f.editId ? `<button class="btn btn-secondary btn-block" data-goto="report" style="margin-top:10px;">Скасувати редагування</button>` : ''}
   `;
 }
 
@@ -1660,13 +1749,14 @@ function renderReport(){
     <div class="table-wrap">
       <table>
         <thead><tr>
-          <th>Час</th>${isAdmin?'<th>Дільниця</th>':''}<th>Інженер</th><th>ТМ</th><th>Найменування</th><th>Партія</th><th>Термін</th>
+          <th></th><th>Час</th>${isAdmin?'<th>Дільниця</th>':''}<th>Інженер</th><th>ТМ</th><th>Найменування</th><th>Партія</th><th>Термін</th>
           <th>Операція</th><th>Норма</th><th>Заміри</th><th>Н/Б</th><th>Відповідність</th>
           <th>Зовн. вигляд</th><th>Дозвіл</th><th>Акт</th>${!isGp?'<th>Обладнання</th>':''}
           <th>Зауваження</th>
         </tr></thead>
         <tbody>
         ${recs.map(r=>`<tr>
+          <td>${canEditRecord(r)?`<button class="btn btn-sm btn-secondary" data-edit-rec="${esc(r.id)}" style="white-space:nowrap;">✏️ Редагувати</button>`:''}</td>
           <td>${esc(r.time)}</td>
           ${isAdmin?`<td>${esc(recordSection(r))}</td>`:''}
           <td>${esc(r.engineer)}</td>
@@ -1683,7 +1773,7 @@ function renderReport(){
           <td>${r.permit?esc(r.permit.number||'так'):'—'}</td>
           <td>${r.act?`<button class="btn btn-sm btn-danger" data-download-act="${esc(r.id)}">⬇️ №${esc(r.act.number||'')}</button>`:'—'}</td>
           ${!isGp?`<td>${esc(r.equipment||'—')}</td>`:''}
-          <td>${esc(r.comment||'—')}</td>
+          <td>${esc(r.comment||'—')}${r.editedAt?`<br><span class="hint" style="display:inline;">✏️ виправлено</span>`:''}</td>
         </tr>`).join('')}
         </tbody>
       </table>
@@ -2841,8 +2931,8 @@ function attachFormEvents(){
     const productCode = f.controlType==='pf' ? pfItems.map(p=>p.code).join('; ') : f.productCode;
     const productName = f.controlType==='pf' ? pfItems.map(p=>p.name).join('; ') : f.productName;
     const record = {
-      date: f.date, time: nowTime(),
-      engineer: state.session.name,
+      date: f.date, time: f.editId ? (f.editTime||nowTime()) : nowTime(),
+      engineer: f.editId ? (f.editEngineer||state.session.name) : state.session.name,
       section: f.section,
       controlType: f.controlType,
       trademark: f.trademark, productCode, productName,
@@ -2884,12 +2974,33 @@ function attachFormEvents(){
         responsiblePosition:f.actResponsiblePosition, responsibleName:f.actResponsibleName,
         statusOptions:f.actStatusOptions.slice(),
         actions:f.actActions,
-        assignedBy: state.session.name,
+        assignedBy: (f.editId && f.editActAssignedBy) ? f.editActAssignedBy : state.session.name,
         photos: f.actPhotos.slice(),
       } : null;
     }
     // Saved as its own Firestore document — the live listener will add it to
     // state.records automatically, no manual push needed.
+    if(f.editId){
+      const old = state.records.find(x=>x.id===f.editId);
+      if(old && old.act && !record.act && !confirm('Після змін у цьому записі більше немає пунктів «Не відповідає». Акт невідповідності буде видалено із запису. Продовжити?')){
+        saveBtn.disabled = false; saveBtn.textContent = 'Зберегти зміни'; return;
+      }
+      record.editedAt = new Date().toISOString();
+      record.editedBy = state.session.name;
+      record.editCount = ((old && old.editCount)||0) + 1;
+      const okEdit = await saveEditedRecord(f.editId, record);
+      if(okEdit){
+        showToast('Зміни збережено','✅');
+        state.form = null;
+        state.reportDate = record.date;
+        state.reportControlType = record.controlType;
+        state.screen = 'report';
+        render();
+      } else {
+        saveBtn.disabled = false; saveBtn.textContent = 'Зберегти зміни';
+      }
+      return;
+    }
     const ok = await saveNewRecord(record);
     if(ok){
       showToast('Запис збережено','✅');
@@ -2925,6 +3036,15 @@ function attachActDownloadButtons(){
 }
 
 function attachReportEvents(){
+  document.querySelectorAll('[data-edit-rec]').forEach(b=>b.onclick=()=>{
+    const r = state.records.find(x=>x.id===b.dataset.editRec);
+    if(!r){ showToast('Запис не знайдено','⚠️'); return; }
+    if(!canEditRecord(r)){ showToast('Редагувати можна лише свої записи','⚠️'); return; }
+    state.form = formFromRecord(r);
+    state.screen = 'new';
+    render();
+    window.scrollTo(0,0);
+  });
   document.getElementById('rep-date').onchange = e=>{ state.reportDate=e.target.value; render(); };
   document.getElementById('rep-eng').onchange = e=>{ state.reportEngineer=e.target.value; render(); };
   const secSel = document.getElementById('rep-section');
