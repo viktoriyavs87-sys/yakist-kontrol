@@ -390,8 +390,25 @@ function displayPrimaryName(r){
   return r.productName;
 }
 function displaySecondaryName(r){
+  if(r.isKit) return kitCompositionText(r);        // склад набору з партіями
   if(r.controlType==='pf' && r.gpProductName) return r.productName; // напівфабрикат(и)
   return '';
+}
+// Склад набору: кожна готова продукція з власною партією
+function kitCompositionItems(r){
+  if(!r || !r.isKit) return [];
+  if(r.kitItems && r.kitItems.length) return r.kitItems;
+  return r.semiProductsList || [];
+}
+function kitCompositionText(r){
+  const items = kitCompositionItems(r);
+  if(!items.length) return r.controlType==='pf' ? (r.productName||'') : '';
+  return items.map(p=>`${p.name}${p.batch?` (партія ${fmtDate(p.batch)})`:''}`).join('; ');
+}
+function secondaryLabel(r){ return r.isKit ? 'склад набору' : 'напівфабрикат'; }
+function batchWithKit(r){
+  const base = fmtDate(r.batch);
+  return r.isKit ? `${base} (набір: ${kitCompositionText(r)})` : base;
 }
 
 function controlTypeLabel(t){ return t==='pf' ? 'Проміжний контроль фасування ГП' : 'Готова продукція'; }
@@ -904,7 +921,7 @@ function renderActView(){
     ${row('Артикул / Складський код', r.productCode)}
     ${row('№ Специфікації / № форми виробництва', a.specNumber)}
     ${row('Дата виготовлення напівфабрикату', fmtDate(a.semiDate))}
-    ${row('№ Партії ГП', fmtDate(r.batch))}
+    ${row('№ Партії ГП', batchWithKit(r))}
     ${row('Загальна кількість партії', a.totalQty ? `${a.totalQty} ${a.totalQtyUnit}` : '—')}
     ${row('Кількість невідповідної продукції', a.defectQty ? `${a.defectQty} ${a.defectQtyUnit}` : '—')}
   </div>
@@ -1145,6 +1162,8 @@ function formFromRecord(r){
   } else {
     f.continuesFrom = r.continuesFrom||'';
     f.continuationNote = r.continuationNote||'';
+    f.isKitMode = !!r.isKit;
+    f.kitItems = (r.kitItems||[]).map(x=>Object.assign({}, x));
   }
   f.appearanceChecks = Object.assign({}, r.appearanceChecks||{});
   if(r.permit){
@@ -1178,6 +1197,34 @@ function trademarksForType(type){
   return Array.from(set).sort((a,b)=>a.localeCompare(b,'uk'));
 }
 
+function renderKitItemsList(f){
+  if(!f.kitItems.length) return '';
+  return `<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:8px;">
+    ${f.kitItems.map((p,i)=>`<div class="list-item" style="padding:8px 10px;flex-wrap:wrap;gap:8px;align-items:center;">
+      <span style="font-size:13px;flex:1 1 100%;">${esc(p.name)}</span>
+      <label style="font-size:12px;color:var(--ink-soft);margin:0;">Партія</label>
+      <input type="date" data-kit-batch="${i}" value="${esc(p.batch||'')}" style="flex:1;min-width:140px;">
+      <button class="btn btn-sm btn-danger" data-rm-kititem="${i}">×</button>
+    </div>`).join('')}
+  </div>`;
+}
+function renderKitBlockGp(f){
+  if(!f.productCode) return '';
+  return `
+    <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-weight:400;cursor:pointer;">
+      <input type="checkbox" id="f-iskit-check" ${f.isKitMode?'checked':''} style="width:18px;height:18px;">
+      <span>Це набір (комплект із кількох товарів)</span>
+    </label>
+    ${f.isKitMode ? `
+    <div class="field" style="margin-top:10px;">
+      <label>Готова продукція в наборі <span style="font-weight:400;color:var(--ink-soft);">(з яких товарів складається набір; для кожної вкажіть партію)</span></label>
+      ${renderKitItemsList(f)}
+      <div class="combo">
+        <input type="text" class="combo-input" id="f-kititem-input" placeholder="Пошук готової продукції для набору…" value="${esc(f.kitItemQuery)}" autocomplete="off">
+        <div class="combo-list" id="f-kititem-list" style="display:none;"></div>
+      </div>
+    </div>` : ''}`;
+}
 function renderForm(){
   const f = state.form;
   if(!f) return renderTypePick();
@@ -1249,10 +1296,8 @@ function renderForm(){
     </div>
     ${isKit ? `
     <div class="field">
-      <label>Готова продукція в наборі <span style="font-weight:400;color:var(--ink-soft);">(з яких товарів складається набір — пошук по всій готовій продукції)</span></label>
-      ${f.kitItems.length ? `<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;">
-        ${f.kitItems.map((p,i)=>`<div class="list-item" style="padding:8px 10px;"><span style="font-size:13px;">${esc(p.name)}</span><button class="btn btn-sm btn-danger" data-rm-kititem="${i}">×</button></div>`).join('')}
-      </div>` : ''}
+      <label>Готова продукція в наборі <span style="font-weight:400;color:var(--ink-soft);">(з яких товарів складається набір — пошук по всій готовій продукції; для кожної вкажіть партію)</span></label>
+      ${renderKitItemsList(f)}
       <div class="combo">
         <input type="text" class="combo-input" id="f-kititem-input" placeholder="Пошук готової продукції для набору…" value="${esc(f.kitItemQuery)}" autocomplete="off">
         <div class="combo-list" id="f-kititem-list" style="display:none;"></div>
@@ -1277,6 +1322,7 @@ function renderForm(){
       <div class="combo-list" id="f-prod-list" style="display:none;"></div>
     </div>
     ${f.productCode ? `<div class="hint">Код: <span class="mono">${esc(f.productCode)}</span></div>` : ''}
+    ${renderKitBlockGp(f)}
     `}
   </div>
 
@@ -1762,7 +1808,7 @@ function renderReport(){
           ${isAdmin?`<td>${esc(recordSection(r))}</td>`:''}
           <td>${esc(r.engineer)}</td>
           <td>${esc(r.trademark)}</td>
-          <td>${esc(displayPrimaryName(r))}${displaySecondaryName(r)?`<br><span class="hint" style="display:inline;">напівфабрикат: ${esc(displaySecondaryName(r))}</span>`:''}${r.continuesFrom?' <span class="hint" style="display:inline;">↳ продовж.</span>':''}</td>
+          <td>${esc(displayPrimaryName(r))}${displaySecondaryName(r)?`<br><span class="hint" style="display:inline;">${secondaryLabel(r)}: ${esc(displaySecondaryName(r))}</span>`:''}${r.continuesFrom?' <span class="hint" style="display:inline;">↳ продовж.</span>':''}</td>
           <td>${esc(fmtDate(r.batch))}</td>
           <td>${esc(fmtDate(r.expiry))}</td>
           <td>${esc(opsLabel(r.ops))}</td>
@@ -1788,7 +1834,7 @@ function buildReportText(recs, date){
   let lines = [`ЗВІТ КОНТРОЛЮ ЯКОСТІ — ${isGp?'ГОТОВА ПРОДУКЦІЯ':'ПРОМІЖНИЙ КОНТРОЛЬ'} — ${fmtDate(date)}`, ''];
   recs.forEach((r,i)=>{
     lines.push(`${i+1}. [${r.time}] Дільниця ${recordSection(r)} — ${r.trademark} ${displayPrimaryName(r)}`);
-    if(displaySecondaryName(r)) lines.push(`   Напівфабрикат: ${displaySecondaryName(r)}`);
+    if(displaySecondaryName(r)) lines.push(`   ${r.isKit?'Склад набору':'Напівфабрикат'}: ${displaySecondaryName(r)}`);
     lines.push(`   Інженер: ${r.engineer} | Партія: ${fmtDate(r.batch)} | Термін: ${fmtDate(r.expiry)}`);
     lines.push(`   Операція: ${opsLabel(r.ops)||'—'} | Норма: ${r.normValue} ${r.normUnit} (${r.netBrutto==='netto'?'нетто':'брутто'})`);
     lines.push(`   Заміри (нетто): ${displayMeasurements(r)||'—'}`);
@@ -1834,7 +1880,7 @@ async function exportXLSX(recs, date){
       'Відповідність': r.compliance==='ok'?'Відповідає':r.compliance==='note'?'Із зауваженням':'Не відповідає',
     };
     if(!isGp){
-      row['Напівфабрикат'] = displaySecondaryName(r);
+      row['Напівфабрикат / склад набору'] = displaySecondaryName(r);
     }
     row['Зовнішній вигляд'] = appearanceLabel(r.appearanceOverall);
     row['Дозвіл на відхилення'] = r.permit ? `№${r.permit.number} від ${fmtDate(r.permit.date)} — ${r.permit.desc||''}` : '';
@@ -1873,7 +1919,7 @@ async function exportPDF(recs, date){
   const head = [['Час','Дільниця','Інженер','ТМ','Найменування','Партія','Термін','Операція','Норма','Заміри','Н/Б','Відповідність',
     'Зовн. вигляд','Дозвіл','Акт', ...(isGp?[]:['Обладнання']),'Зауваження']];
   const body = recs.map(r=>[
-    r.time, recordSection(r), r.engineer, r.trademark, displayPrimaryName(r),
+    r.time, recordSection(r), r.engineer, r.trademark, displayPrimaryName(r) + (r.isKit ? '\nСклад набору: ' + kitCompositionText(r) : ''),
     fmtDate(r.batch), fmtDate(r.expiry),
     opsLabel(r.ops),
     `${r.normValue} ${r.normUnit}`,
@@ -2090,7 +2136,7 @@ async function downloadActPDF(record){
     ['Артикул / Складський код', record.productCode],
     ['№ Специфікації / № форми виробництва', a.specNumber],
     ['Дата виготовлення напівфабрикату', fmtDate(a.semiDate)],
-    ['№ Партії ГП', fmtDate(record.batch)],
+    ['№ Партії ГП', batchWithKit(record)],
     ['Загальна кількість партії, Од. вим (шт/кг)', a.totalQty ? `${a.totalQty} ${a.totalQtyUnit}` : '—'],
     ['Кількість невідповідної продукції, Од. вим (шт/кг)', a.defectQty ? `${a.defectQty} ${a.defectQtyUnit}` : '—'],
   ]);
@@ -2331,7 +2377,7 @@ async function downloadActDOCX(record){
     ['Артикул / Складський код', record.productCode],
     ['№ Специфікації / № форми виробництва', a.specNumber],
     ['Дата виготовлення напівфабрикату', fmtDate(a.semiDate)],
-    ['№ Партії ГП', fmtDate(record.batch)],
+    ['№ Партії ГП', batchWithKit(record)],
     ['Загальна кількість партії, Од. вим (шт/кг)', a.totalQty ? `${a.totalQty} ${a.totalQtyUnit}` : '—'],
     ['Кількість невідповідної продукції, Од. вим (шт/кг)', a.defectQty ? `${a.defectQty} ${a.defectQtyUnit}` : '—'],
   ]));
@@ -2691,7 +2737,7 @@ function attachFormEvents(){
       document.querySelectorAll('#f-kititem-list .combo-item').forEach(it=>{
         it.onclick = ()=>{
           const p = state.catalog.products.find(x=>x.code===it.dataset.val && x.type==='gp');
-          f.kitItems.push({code:p.code, name:p.name, trademark:p.trademark});
+          f.kitItems.push({code:p.code, name:p.name, trademark:p.trademark, batch:''});
           f.kitItemQuery='';
           kitItemInput.value='';
           hideCombo('f-kititem-list'); render();
@@ -2702,6 +2748,10 @@ function attachFormEvents(){
     kitItemInput.onfocus = showKitItemList;
     kitItemInput.onblur = ()=>setTimeout(()=>hideCombo('f-kititem-list'),150);
   }
+  document.querySelectorAll('[data-kit-batch]').forEach(inp=>{
+    const upd = ()=>{ const it = f.kitItems[+inp.dataset.kitBatch]; if(it) it.batch = inp.value; };
+    inp.onchange = upd; inp.oninput = upd;
+  });
   document.querySelectorAll('[data-rm-kititem]').forEach(b=>{
     b.onclick = ()=>{ f.kitItems.splice(+b.dataset.rmKititem,1); render(); };
   });
@@ -2723,7 +2773,7 @@ function attachFormEvents(){
         };
       });
     };
-    prodInput.oninput = ()=>{ f.prodQuery=prodInput.value; f.productCode=''; f.productName=''; showProdList(); };
+    prodInput.oninput = ()=>{ f.prodQuery=prodInput.value; f.productCode=''; f.productName=''; f.isKitMode=false; f.kitItems=[]; showProdList(); };
     prodInput.onfocus = showProdList;
     prodInput.onblur = ()=>setTimeout(()=>hideCombo('f-prod-list'),150);
   }
@@ -2821,6 +2871,7 @@ function attachFormEvents(){
           else { f.semiProducts = restoredItems; f.kitItems = []; }
         } else {
           f.productCode = rec.productCode; f.productName = rec.productName; f.prodQuery = rec.productName;
+          f.isKitMode = !!rec.isKit; f.kitItems = (rec.kitItems||[]).map(x=>Object.assign({}, x));
         }
       }
       render();
@@ -2913,7 +2964,8 @@ function attachFormEvents(){
     if(!f.trademark){ showToast('Оберіть торгову марку','⚠️'); return; }
     const isKit = f.controlType==='pf' && f.isKitMode;
     if(f.controlType==='pf' && f.gpProducts.length===0){ showToast('Оберіть готову продукцію','⚠️'); return; }
-    if(f.controlType==='pf' && isKit && f.kitItems.length===0){ showToast('Оберіть готову продукцію, з якої складається набір','⚠️'); return; }
+    if(f.isKitMode && f.kitItems.length===0){ showToast('Оберіть готову продукцію, з якої складається набір','⚠️'); return; }
+    if(f.isKitMode && f.kitItems.some(p=>!p.batch)){ showToast('Вкажіть партію кожної готової продукції в наборі','⚠️'); return; }
     if(f.controlType==='pf' && !isKit && f.semiProducts.length===0){ showToast('Оберіть напівфабрикат','⚠️'); return; }
     if(f.controlType==='gp' && !f.productName){ showToast('Оберіть продукцію','⚠️'); return; }
     if(!f.batch){ showToast('Вкажіть партію (дату НФ)','⚠️'); return; }
@@ -2950,12 +3002,15 @@ function attachFormEvents(){
     };
     if(f.controlType==='pf'){
       record.isKit = isKit;
+      record.kitItems = isKit ? f.kitItems.map(x=>Object.assign({}, x)) : [];
       record.gpProductCode = f.gpProducts.map(p=>p.code).join('; ');
       record.gpProductName = f.gpProducts.map(p=>p.name).join('; ');
       record.gpProductsList = f.gpProducts.slice();
       record.semiProductsList = pfItems.slice();
     }
     if(f.controlType==='gp'){
+      record.isKit = !!f.isKitMode;
+      record.kitItems = f.isKitMode ? f.kitItems.map(x=>Object.assign({}, x)) : [];
       record.continuesFrom = f.continuesFrom || null;
       record.continuationNote = f.continuationNote || '';
     }
