@@ -403,7 +403,15 @@ function kitCompositionItems(r){
 function kitCompositionText(r){
   const items = kitCompositionItems(r);
   if(!items.length) return r.controlType==='pf' ? (r.productName||'') : '';
-  return items.map(p=>`${p.name}${p.batch?` (партія ${fmtDate(p.batch)})`:''}`).join('; ');
+  // одна й та сама продукція може бути в наборі кількома партіями — групуємо
+  const groups = [];
+  items.forEach(p=>{
+    const key = (p.code||'') + '|' + (p.name||'');
+    let g = groups.find(x=>x.key===key);
+    if(!g){ g = {key, name:p.name, batches:[]}; groups.push(g); }
+    if(p.batch) g.batches.push(fmtDate(p.batch));
+  });
+  return groups.map(g=>`${g.name}${g.batches.length?` (${g.batches.length>1?'партії':'партія'} ${g.batches.join(', ')})`:''}`).join('; ');
 }
 function secondaryLabel(r){ return r.isKit ? 'склад набору' : 'напівфабрикат'; }
 function batchWithKit(r){
@@ -1204,6 +1212,7 @@ function renderKitItemsList(f){
       <span style="font-size:13px;flex:1 1 100%;">${esc(p.name)}</span>
       <label style="font-size:12px;color:var(--ink-soft);margin:0;">Партія</label>
       <input type="date" data-kit-batch="${i}" value="${esc(p.batch||'')}" style="flex:1;min-width:140px;">
+      <button class="btn btn-sm btn-secondary" data-kit-addbatch="${i}" title="Додати ще одну партію цієї ж продукції" style="white-space:nowrap;">＋ ще партія</button>
       <button class="btn btn-sm btn-danger" data-rm-kititem="${i}">×</button>
     </div>`).join('')}
   </div>`;
@@ -2730,7 +2739,7 @@ function attachFormEvents(){
   if(kitItemInput){
     const showKitItemList = ()=>{
       const q = kitItemInput.value.trim().toLowerCase();
-      const already = new Set([...f.gpProducts.map(p=>p.code), ...f.kitItems.map(p=>p.code)]);
+      const already = new Set(f.gpProducts.map(p=>p.code));
       let opts = productsForType('gp').filter(p=>!already.has(p.code));
       if(q) opts = opts.filter(p=>p.name.toLowerCase().includes(q)||p.code.includes(q));
       renderComboList('f-kititem-list', opts.slice(0,40).map(p=>({value:p.code,label:p.name,sub:(p.trademark||'')+' · код '+p.code})), 'Нічого не знайдено');
@@ -2751,6 +2760,13 @@ function attachFormEvents(){
   document.querySelectorAll('[data-kit-batch]').forEach(inp=>{
     const upd = ()=>{ const it = f.kitItems[+inp.dataset.kitBatch]; if(it) it.batch = inp.value; };
     inp.onchange = upd; inp.oninput = upd;
+  });
+  document.querySelectorAll('[data-kit-addbatch]').forEach(b=>{
+    b.onclick = ()=>{
+      const i = +b.dataset.kitAddbatch; const it = f.kitItems[i]; if(!it) return;
+      f.kitItems.splice(i+1, 0, {code:it.code, name:it.name, trademark:it.trademark, batch:''});
+      render();
+    };
   });
   document.querySelectorAll('[data-rm-kititem]').forEach(b=>{
     b.onclick = ()=>{ f.kitItems.splice(+b.dataset.rmKititem,1); render(); };
@@ -2966,6 +2982,7 @@ function attachFormEvents(){
     if(f.controlType==='pf' && f.gpProducts.length===0){ showToast('Оберіть готову продукцію','⚠️'); return; }
     if(f.isKitMode && f.kitItems.length===0){ showToast('Оберіть готову продукцію, з якої складається набір','⚠️'); return; }
     if(f.isKitMode && f.kitItems.some(p=>!p.batch)){ showToast('Вкажіть партію кожної готової продукції в наборі','⚠️'); return; }
+    if(f.isKitMode && new Set(f.kitItems.map(p=>p.code+'|'+p.batch)).size !== f.kitItems.length){ showToast('Одна й та сама продукція з однаковою партією внесена двічі','⚠️'); return; }
     if(f.controlType==='pf' && !isKit && f.semiProducts.length===0){ showToast('Оберіть напівфабрикат','⚠️'); return; }
     if(f.controlType==='gp' && !f.productName){ showToast('Оберіть продукцію','⚠️'); return; }
     if(!f.batch){ showToast('Вкажіть партію (дату НФ)','⚠️'); return; }
